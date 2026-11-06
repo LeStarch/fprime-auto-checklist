@@ -6,8 +6,14 @@ namespace tidy {
 namespace fprime {
 
 void registerSyntaxChecks(ClangTidyCheckFactories &F);
+void registerAssertionChecks(ClangTidyCheckFactories &F);
+void registerHandlerChecks(ClangTidyCheckFactories &F);
 
-void registerFprimeChecks(ClangTidyCheckFactories &F) { registerSyntaxChecks(F); }
+void registerFprimeChecks(ClangTidyCheckFactories &F) {
+  registerSyntaxChecks(F);
+  registerAssertionChecks(F);
+  registerHandlerChecks(F);
+}
 
 } // namespace fprime
 } // namespace tidy
