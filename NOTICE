@@ -1,0 +1,14 @@
+fprime-auto-checklist
+Copyright 2026 Michael Starch
+
+This product includes software developed at the Jet Propulsion Laboratory,
+California Institute of Technology, redistributed under the Apache License 2.0:
+
+  * src/fprime_auto_checklist/queries/fprime-queries/  and  codeql/fprime-queries-tests/
+    copied from https://github.com/nasa/fprime (.github/codeql/), see VENDORED.md
+  * src/fprime_auto_checklist/checks/
+    copied from https://github.com/nasa/fprime-actions (component-checks/scripts and
+    coverage-common/scripts/_config.py, _tiers.py), see VENDORED.md
+
+The CodeQL CLI is NOT included.  Users install it separately and are bound by
+the GitHub CodeQL Terms and Conditions shipped with it.

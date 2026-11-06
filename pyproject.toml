@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fprime-auto-checklist"
+version = "0.1.0"
+description = "Pre-fill the F Prime Component Development Checklist from CodeQL and script evidence"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+fprime-auto-checklist = "fprime_auto_checklist.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"fprime_auto_checklist" = ["queries/fprime-queries/*.ql", "queries/fprime-queries/*.qll", "queries/fprime-queries/qlpack.yml"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "S"]
+ignore = ["S603", "S607"]  # subprocess runs list-form argv with no shell; call sites are reviewed
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "E501"]
+# Checklist item texts are quoted verbatim from the checklist document.
+"src/fprime_auto_checklist/checklist.py" = ["E501"]
+# Vendored from nasa/fprime-actions unchanged apart from import rewriting.
+"src/fprime_auto_checklist/checks/*" = ["E501", "B007", "B023"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
