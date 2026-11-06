@@ -27,8 +27,10 @@ from .results import CodeqlEvidence, Finding
 PACKAGE_DIR = Path(__file__).resolve().parent
 QUERIES_DIR = PACKAGE_DIR / "queries" / "fprime-queries"
 
-#: Stock queries pulled from the public ``codeql/cpp-queries`` pack.
-STOCK_QUERIES = ("codeql/cpp-queries:Likely Bugs/Memory Management/UninitializedLocal.ql",)
+#: Stock queries pulled from the public ``codeql/cpp-queries`` pack, pinned to
+#: the release matching the ``codeql/cpp-all`` version in the vendored lock file.
+STOCK_QUERIES_VERSION = "1.10.0"
+STOCK_QUERIES = (f"codeql/cpp-queries@{STOCK_QUERIES_VERSION}:Likely Bugs/Memory Management/UninitializedLocal.ql",)
 
 _OSI_LICENSES = (
     (r"Apache License\s+Version 2\.0", "Apache-2.0"),
@@ -121,7 +123,21 @@ def create_database(codeql: str, source_root: Path, db_path: Path, build_command
     _run(cmd, source_root, log)
 
 
+def stage_queries(work_dir: Path, source: Path = QUERIES_DIR) -> Path:
+    """Copy the vendored pack into the work dir.
+
+    ``codeql pack install`` writes its lock/cache next to the pack, which must
+    not happen inside a (possibly read-only) installed package.
+    """
+    staged = work_dir / "fprime-queries"
+    if staged.exists():
+        shutil.rmtree(staged)
+    shutil.copytree(source, staged, ignore=shutil.ignore_patterns(".codeql", "__pycache__"))
+    return staged
+
+
 def install_pack(codeql: str, queries_dir: Path, log: Path) -> None:
+    """Resolve the pack's dependencies (pinned by its codeql-pack.lock.yml)."""
     _run([codeql, "pack", "install", str(queries_dir)], None, log)
 
 

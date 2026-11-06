@@ -7,6 +7,5 @@ dist/
 .ruff_cache/
 *.work/
 *.sarif
-codeql-pack.lock.yml
 .codeql/
 *.testproj/

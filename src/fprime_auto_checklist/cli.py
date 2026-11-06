@@ -7,21 +7,25 @@ import io
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import __version__
 from . import codeql as cq
 from .checklist import ITEMS, codeql_rule_ids
 from .render import render_json, render_markdown
 from .results import NO, CodeqlEvidence, judge_all
-from .runner import RunOptions, _git_head, _relative, run_checks
+from .runner import ModuleOutsideProject, RunOptions, _git_head, _relative, run_checks
+
+EXIT_OK, EXIT_ITEMS_FAILED, EXIT_USAGE, EXIT_CODEQL_UNAVAILABLE = 0, 1, 2, 3
 
 
 def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project", type=Path, default=Path("."), help="F Prime project checkout root (default: .)")
     parser.add_argument("--module", type=Path, required=True, help="Component directory, e.g. Svc/CmdDispatcher")
     parser.add_argument("--output", "-o", type=Path, default=Path("checklist.md"), help="Markdown checklist to write")
-    parser.add_argument("--json", type=Path, default=None, help="Also write the machine-readable results here")
+    parser.add_argument(
+        "--json-output", type=Path, default=None, help="Also write the machine-readable results (JSON) here"
+    )
     parser.add_argument(
         "--work-dir", type=Path, default=None, help="Scratch dir for logs, DB and SARIF (default: <output>.work)"
     )
@@ -70,12 +74,13 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     q.add_argument("--codeql-threads", type=int, default=0, help="Threads for the analysis (0 = all cores)")
 
 
-def _codeql_phase(args: argparse.Namespace, work_dir: Path, log: io.StringIO) -> tuple:
-    """Return (CodeqlEvidence, sarif_path | None)."""
+def _codeql_phase(
+    args: argparse.Namespace, project: Path, module: Path, work_dir: Path, log: io.StringIO
+) -> Tuple[CodeqlEvidence, Optional[Path]]:
+    """Run (or reuse) the CodeQL analysis and scope it to ``module``."""
     if args.skip_codeql:
         return CodeqlEvidence(ran=False, reason="--skip-codeql given"), None
-    project = args.project.resolve()
-    module_rel = _relative(args.module, project)
+    module_rel = _relative(module, project)
     rules = codeql_rule_ids()
     sarif = args.sarif
     if sarif is None:
@@ -92,9 +97,12 @@ def _codeql_phase(args: argparse.Namespace, work_dir: Path, log: io.StringIO) ->
                 build_command = args.build_command or f"fprime-util build -j{jobs}"
                 log.write(f"codeql: creating database with: {build_command}\n")
                 cq.create_database(codeql, project, db, build_command, work_dir / "codeql-create.log")
-            cq.install_pack(codeql, cq.QUERIES_DIR, work_dir / "codeql-pack-install.log")
+            queries_dir = cq.stage_queries(work_dir)
+            cq.install_pack(codeql, queries_dir, work_dir / "codeql-pack-install.log")
             sarif = work_dir / "checklist.sarif"
-            cq.analyze(codeql, db, sarif, work_dir / "codeql-analyze.log", threads=args.codeql_threads)
+            cq.analyze(
+                codeql, db, sarif, work_dir / "codeql-analyze.log", queries_dir=queries_dir, threads=args.codeql_threads
+            )
         except cq.CodeqlError as exc:
             log.write(f"codeql: {exc}\n")
             return CodeqlEvidence(ran=False, reason=str(exc)), None
@@ -103,17 +111,27 @@ def _codeql_phase(args: argparse.Namespace, work_dir: Path, log: io.StringIO) ->
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    """Run CodeQL and the checks for one module and write the pre-filled checklist.
+
+    Exit codes: 0 no item failed; 1 some item is NO; 2 usage error;
+    3 CodeQL was requested but could not run (its items are UNCHECKED).
+    """
     project = args.project.resolve()
-    module = args.module if args.module.is_absolute() else project / args.module
+    module = (args.module if args.module.is_absolute() else project / args.module).resolve()
     if not module.is_dir():
         print(f"error: module directory not found: {module}", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
+    try:
+        module_rel = _relative(module, project)
+    except ModuleOutsideProject as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     output: Path = args.output
     work_dir = args.work_dir or output.with_name(output.name + ".work")
     work_dir.mkdir(parents=True, exist_ok=True)
     log = io.StringIO()
 
-    codeql_evidence, sarif = _codeql_phase(args, work_dir, log)
+    codeql_evidence, sarif = _codeql_phase(args, project, module, work_dir, log)
     opts = RunOptions(
         project=project,
         module=module,
@@ -130,7 +148,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     records = run_checks(opts, work_dir, log)
     verdicts = judge_all(records, codeql_evidence)
 
-    module_rel = _relative(module, project)
     commit = args.sha or _git_head(project)
     markdown = render_markdown(
         verdicts,
@@ -143,22 +160,26 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(markdown, encoding="utf-8")
-    if args.json:
-        args.json.parent.mkdir(parents=True, exist_ok=True)
-        args.json.write_text(
+    if args.json_output:
+        args.json_output.parent.mkdir(parents=True, exist_ok=True)
+        args.json_output.write_text(
             render_json(verdicts, records, codeql_evidence, module=module_rel, commit=commit), encoding="utf-8"
         )
     (work_dir / "checks.log").write_text(log.getvalue(), encoding="utf-8")
     if args.verbose:
         sys.stdout.write(log.getvalue())
-    counts = {}
+    counts: Dict[str, int] = {}
     for v in verdicts:
         counts[v.status] = counts.get(v.status, 0) + 1
     print(f"wrote {output}: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
-    return 1 if counts.get(NO) else 0
+    if not args.skip_codeql and not codeql_evidence.ran:
+        print(f"codeql did not run: {codeql_evidence.reason}", file=sys.stderr)
+        return EXIT_CODEQL_UNAVAILABLE
+    return EXIT_ITEMS_FAILED if counts.get(NO) else EXIT_OK
 
 
 def cmd_items(_args: argparse.Namespace) -> int:
+    """Print every checklist item with the evidence that decides it."""
     print("| # | Item | Evidence |")
     print("|---|------|----------|")
     for item in ITEMS:
@@ -168,6 +189,7 @@ def cmd_items(_args: argparse.Namespace) -> int:
 
 
 def cmd_license_check(args: argparse.Namespace) -> int:
+    """Report whether the CodeQL CLI terms permit analysing ``--project``."""
     decision = cq.license_gate(args.project.resolve(), args.codeql_license_ack)
     print(("ALLOWED: " if decision.allowed else "REFUSED: ") + decision.basis)
     return 0 if decision.allowed else 1

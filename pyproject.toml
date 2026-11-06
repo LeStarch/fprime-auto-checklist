@@ -26,11 +26,20 @@ dev = ["pytest>=7", "ruff>=0.4"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"fprime_auto_checklist" = ["queries/fprime-queries/*.ql", "queries/fprime-queries/*.qll", "queries/fprime-queries/qlpack.yml"]
+"fprime_auto_checklist" = [
+  "queries/fprime-queries/*.ql",
+  "queries/fprime-queries/*.qll",
+  "queries/fprime-queries/qlpack.yml",
+  "queries/fprime-queries/codeql-pack.lock.yml",
+]
 
 [tool.ruff]
 line-length = 120
 target-version = "py39"
+
+[tool.ruff.format]
+# Vendored scripts keep their upstream formatting.
+exclude = ["src/fprime_auto_checklist/checks/*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "S"]

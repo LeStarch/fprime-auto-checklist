@@ -48,6 +48,11 @@ from .checks import (
 )
 from .checks._fpp import load_module_model
 
+
+class ModuleOutsideProject(ValueError):
+    """The module directory is not inside the project checkout."""
+
+
 #: Checks that only parse the model, sources and docs; always run.
 STATIC_CHECKS = [
     ("R1", check_req_commands),
@@ -98,8 +103,9 @@ def _invoke(module, argv: List[str], records_file: Path, log: io.StringIO) -> No
     try:
         with redirect_stdout(log), redirect_stderr(log):
             module.main(argv + ["--json-output", str(records_file)])
-    except SystemExit:
-        pass
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            log.write(f"ERROR: {module.__name__} exited {exc.code} (usage error?)\n")
     except Exception as exc:  # noqa: BLE001 -- one broken check must not kill the run
         log.write(f"ERROR: {module.__name__} crashed: {exc}\n")
 
@@ -122,6 +128,8 @@ def fpp_dependencies(project: Path, module: Path, log: io.StringIO) -> Optional[
     top_level = [f for f in load_module_model(module).fpp_files if f.suffix == ".fpp"]
     if not locs or fpp_depend is None or not top_level:
         return None
+    if len(locs) > 1:
+        log.write(f"fpp-depend: {len(locs)} build caches found, using {locs[0]}\n")
     cmd = [fpp_depend, str(locs[0]), *[str(f) for f in top_level]]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
@@ -260,7 +268,8 @@ def run_checks(opts: RunOptions, work_dir: Path, log: io.StringIO) -> Dict[str, 
 
 
 def _relative(module: Path, project: Path) -> str:
+    """Project-relative POSIX path of ``module``; raises when it is outside the project."""
     try:
         return module.resolve().relative_to(project.resolve()).as_posix()
-    except ValueError:
-        return module.as_posix()
+    except ValueError as exc:
+        raise ModuleOutsideProject(f"module {module} is not inside project {project}") from exc

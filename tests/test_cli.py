@@ -12,18 +12,21 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_run_skip_codeql_writes_checklist(tmp_path):
+    # Copied out of this git checkout so the fixture's hardware-run record
+    # (fake commit id) is judged as it would be in a plain source tree.
+    project, _widget = _copy_widget(tmp_path)
     out = tmp_path / "checklist.md"
     rc = cli.main(
         [
             "run",
             "--project",
-            str(FIXTURES),
+            str(project),
             "--module",
             "Svc/Widget",
             "--skip-codeql",
             "-o",
             str(out),
-            "--json",
+            "--json-output",
             str(tmp_path / "r.json"),
             "--owner",
             "Widget Team",
@@ -89,7 +92,7 @@ def test_run_with_prebuilt_sarif(tmp_path):
             str(sarif),
             "-o",
             str(out),
-            "--json",
+            "--json-output",
             str(tmp_path / "r.json"),
         ]
     )
@@ -111,7 +114,7 @@ def test_codeql_license_gate_blocks_fixture_without_license(tmp_path):
             "Svc/Widget",
             "-o",
             str(out),
-            "--json",
+            "--json-output",
             str(tmp_path / "r.json"),
         ]
     )
@@ -150,3 +153,119 @@ def test_check_scripts_run_as_modules():
         env={**os.environ, "PYTHONPATH": str(FIXTURES.parent.parent / "src")},
     )
     assert proc.returncode == 0 and proc.stdout.startswith("PASS [R1]")
+
+
+def _sarif_with_printf():
+    return {
+        "runs": [
+            {
+                "tool": {"driver": {"rules": [{"id": "cpp/fprime/no-printf"}]}},
+                "results": [
+                    {
+                        "ruleId": "cpp/fprime/no-printf",
+                        "message": {"text": "printf"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "Svc/Widget/Widget.cpp"},
+                                    "region": {"startLine": 4},
+                                }
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_non_normalised_module_path_scopes_sarif_correctly(tmp_path):
+    sarif = tmp_path / "pre.sarif"
+    sarif.write_text(json.dumps(_sarif_with_printf()), encoding="utf-8")
+    rc = cli.main(
+        [
+            "run",
+            "--project",
+            str(FIXTURES),
+            "--module",
+            "Svc/../Svc/Widget",
+            "--sarif",
+            str(sarif),
+            "-o",
+            str(tmp_path / "c.md"),
+            "--json-output",
+            str(tmp_path / "r.json"),
+        ]
+    )
+    data = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
+    assert data["module"] == "Svc/Widget"
+    assert {i["id"]: i["status"] for i in data["items"]}["3.35"] == "NO"
+    assert rc == cli.EXIT_ITEMS_FAILED
+
+
+def test_module_outside_project_is_usage_error(tmp_path):
+    outside = tmp_path / "Elsewhere"
+    outside.mkdir()
+    rc = cli.main(
+        ["run", "--project", str(FIXTURES), "--module", str(outside), "--skip-codeql", "-o", str(tmp_path / "c.md")]
+    )
+    assert rc == cli.EXIT_USAGE
+
+
+def test_codeql_requested_but_unavailable_exits_3(tmp_path):
+    rc = cli.main(["run", "--project", str(FIXTURES), "--module", "Svc/Widget", "-o", str(tmp_path / "c.md")])
+    assert rc == cli.EXIT_CODEQL_UNAVAILABLE
+
+
+def _copy_widget(tmp_path):
+    import shutil
+
+    project = tmp_path / "proj"
+    shutil.copytree(FIXTURES, project)
+    return project, project / "Svc" / "Widget"
+
+
+def _statuses(project, tmp_path):
+    cli.main(
+        [
+            "run",
+            "--project",
+            str(project),
+            "--module",
+            "Svc/Widget",
+            "--skip-codeql",
+            "-o",
+            str(tmp_path / "c.md"),
+            "--json-output",
+            str(tmp_path / "r.json"),
+        ]
+    )
+    data = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
+    return {i["id"]: i["status"] for i in data["items"]}
+
+
+def test_pattern_drift_missing_sdd(tmp_path):
+    """Composite-check failure patterns must still match the vendored scripts' messages."""
+    project, widget = _copy_widget(tmp_path)
+    (widget / "docs" / "sdd.md").unlink()
+    statuses = _statuses(project, tmp_path)
+    for item in ("1.1", "1.4", "1.7", "2.1", "2.2", "2.7", "2.8", "2.10", "2.15"):
+        assert statuses[item] == "NO", item
+
+
+def test_pattern_drift_diagrams_and_kinds(tmp_path):
+    project, widget = _copy_widget(tmp_path)
+    sdd = widget / "docs" / "sdd.md"
+    text = sdd.read_text(encoding="utf-8")
+    assert "```mermaid" in text
+    text = "\n".join(
+        line
+        for line in text.splitlines()
+        if "mermaid" not in line and "sequenceDiagram" not in line and "-->" not in line and "->>" not in line
+    )
+    text = text.replace("| Memory |", "| |").replace("| Performance |", "| |")
+    sdd.write_text(text, encoding="utf-8")
+    statuses = _statuses(project, tmp_path)
+    assert statuses["2.2"] == "NO" and statuses["2.7"] == "NO"
+    assert statuses["1.4"] == "NO" and statuses["1.6"] == "NO"
+    assert statuses["1.7"] == "YES"

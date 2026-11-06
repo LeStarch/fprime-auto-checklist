@@ -80,8 +80,23 @@ def test_scope_findings_keeps_module_hand_written_only(tmp_path):
         codeql.load_sarif(path), "Svc/Widget", ["cpp/fprime/no-printf", "cpp/fprime/float-equality"]
     )
     assert ev.ran
-    assert [str(f) for f in ev.findings["cpp/fprime/no-printf"]] == ["Svc/Widget/Widget.cpp:10 printf used; second line"]
+    assert [str(f) for f in ev.findings["cpp/fprime/no-printf"]] == [
+        "Svc/Widget/Widget.cpp:10 printf used; second line"
+    ]
     assert ev.findings["cpp/fprime/float-equality"] == []
     assert len(ev.findings["cpp/uninitialized-local"]) == 1
     assert ev.autocode_findings == 1
     assert ev.rules_run == ["cpp/fprime/no-printf", "cpp/uninitialized-local"]
+
+
+def test_stage_queries_copies_pack_with_lock(tmp_path):
+    staged = codeql.stage_queries(tmp_path)
+    assert (staged / "qlpack.yml").is_file() and (staged / "codeql-pack.lock.yml").is_file()
+    assert len(list(staged.glob("*.ql"))) == len(list(codeql.QUERIES_DIR.glob("*.ql")))
+    assert codeql.stage_queries(tmp_path) == staged  # idempotent
+
+
+def test_stock_queries_are_pinned():
+    assert all(
+        "@" in q and q.split("@", 1)[1].split(":")[0] == codeql.STOCK_QUERIES_VERSION for q in codeql.STOCK_QUERIES
+    )

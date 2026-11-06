@@ -8,7 +8,9 @@ C="$ROOT/src/fprime_auto_checklist/checks"
 rm -rf "$Q" "$ROOT/codeql/fprime-queries-tests"
 cp -r "$FPRIME/.github/codeql/fprime-queries" "$Q"
 cp -r "$FPRIME/.github/codeql/fprime-queries-tests" "$ROOT/codeql/fprime-queries-tests"
-find "$Q" "$ROOT/codeql/fprime-queries-tests" \( -name ".codeql" -o -name "*.testproj" -o -name "codeql-pack.lock.yml" \) -prune -exec rm -rf {} +
+find "$Q" "$ROOT/codeql/fprime-queries-tests" \( -name ".codeql" -o -name "*.testproj" \) -prune -exec rm -rf {} +
+# Pin the pack's dependencies (kept under version control; see README "CodeQL licensing").
+codeql pack install "$Q"
 find "$C" -name "check_*.py" -o -name "_*.py" | grep -v __init__ | xargs rm -f
 cp "$ACTIONS"/component-checks/scripts/_*.py "$ACTIONS"/component-checks/scripts/check_*.py "$C/"
 cp "$ACTIONS"/coverage-common/scripts/_config.py "$ACTIONS"/coverage-common/scripts/_tiers.py "$C/"

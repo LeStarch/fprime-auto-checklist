@@ -16,8 +16,11 @@ LLM reviewer.
   `🔵 REVIEW` with the rule a reviewer should apply.  Running on hardware
   (5.3) is attested by a `docs/hardware-run.md` record that the tool checks.
 
-Where a script covers an item that also has an LLM-quality residue (1.1,
-2.1, 2.4, 3.10), the script verdict is taken as sufficient.
+Where a script covers an item that also has an LLM-quality residue, the
+script verdict is taken as sufficient: 1.1 (R9/R1), 2.1 (SDD grade), 2.4
+(D10), 3.10 (float rules), and 5.4 "SDD reflects the final state" (D7/D8/D9
+consistency with the FPP model plus the structural SDD grade are the objective
+proxy for "accurately reflects").
 
 ## Install
 
@@ -37,7 +40,7 @@ project's `fprime-venv` so `fpp-check`, `fpp-depend` and `fprime-util` are on
 ```bash
 cd my-fprime-project
 fprime-util generate                      # build cache (locs.fpp) for the FPP checks
-fprime-auto-checklist run --module Svc/MyComponent -o MyComponent-checklist.md --json results.json
+fprime-auto-checklist run --module Svc/MyComponent -o MyComponent-checklist.md --json-output results.json
 ```
 
 `run` will
@@ -60,8 +63,12 @@ fprime-auto-checklist run --module Svc/MyComponent -o MyComponent-checklist.md -
    | 🔵 REVIEW | needs a human/LLM; Notes carries the review rule |
    | ⚫ UNCHECKED | the deciding tool did not run (no build, no CodeQL, no token, …); Notes says why |
 
-   and a **Hand-off** section listing what is left for the reviewer.  Exit
-   code is 1 when any item is `NO`.
+   and a **Hand-off** section listing what is left for the reviewer.
+
+Exit codes: `0` no item is NO; `1` at least one item is NO; `2` usage error;
+`3` CodeQL was requested (no `--skip-codeql`) but could not run — license gate
+refused, CLI missing, or database/analysis failed — so its items are
+UNCHECKED.
 
 Useful variants:
 
@@ -99,8 +106,11 @@ not be redistributed.  Accordingly:
   found at `--project`, or the operator attests with
   `--codeql-license-ack open-source` (OSI-licensed code without a detectable
   license file) or `--codeql-license-ack ghas` (covered by GHAS);
-* the vendored query pack and its dependency `codeql/cpp-all` are MIT-licensed
-  (GitHub) and Apache-2.0 (nasa/fprime).
+* the vendored query pack is Apache-2.0 (nasa/fprime); its dependency
+  `codeql/cpp-all` and the stock `codeql/cpp-queries` pack are MIT-licensed
+  (GitHub) and are fetched from the public GitHub container registry at
+  analysis time (`--download`), pinned by the committed
+  `codeql-pack.lock.yml` and `STOCK_QUERIES_VERSION`.
 
 ## Development
 

@@ -110,3 +110,16 @@ def test_evidence_helpers():
     assert checklist.codeql("no-printf").ref == "cpp/fprime/no-printf"
     assert checklist.codeql("cpp/uninitialized-local").ref == "cpp/uninitialized-local"
     assert Evidence("check", "R1").pattern is None
+
+
+def test_no_requirements_is_a_failure_not_na():
+    ev = results.CodeqlEvidence(ran=False, reason="x")
+    rec = {"R9": _rec("R9", "skip", detail="no requirements found")}
+    assert results.judge_item(checklist.ITEMS_BY_ID["1.4"], rec, ev).status == results.NO
+    rec = {"R8": _rec("R8", "skip", detail="no requirements found")}
+    assert results.judge_item(checklist.ITEMS_BY_ID["1.7"], rec, ev).status == results.NO
+
+
+def test_sarif_without_rule_metadata_is_unchecked():
+    ev = results.CodeqlEvidence(ran=True, findings={}, rules_run=[])
+    assert results.judge_item(checklist.ITEMS_BY_ID["3.3"], {}, ev).status == results.UNCHECKED

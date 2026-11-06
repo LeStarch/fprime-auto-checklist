@@ -22,10 +22,13 @@ STATUS_LABELS = {
 #: model, so the item does not apply.  Any other skip reason (tool missing,
 #: no token, ...) means the check did not run.
 _NOT_APPLICABLE = re.compile(
-    r"^no (FPP files|commands|data product|state machines|typed|requirements|"
-    r"C\+\+ sources|unit-test sources|dictionary)|declares? no|managed by framework",
+    r"^no (commands|data product|state machines|typed|C\+\+ sources|unit-test sources|dictionary)"
+    r"|declares? no|managed by framework",
     re.IGNORECASE,
 )
+#: A check that skipped because the inputs the item asks about are missing
+#: altogether ("do requirements exist" with no requirements) has failed.
+_SKIP_IS_FAILURE = re.compile(r"^no requirements found", re.IGNORECASE)
 
 MAX_NOTES = 6
 
@@ -68,6 +71,8 @@ def _check_outcome(ev: Evidence, records: Dict[str, dict]) -> tuple:
         return YES, [f"{ev.ref} pass" + (f" ({record['detail']})" if record.get("detail") else "")]
     if status == "skip":
         reason = str(record.get("detail") or "skipped")
+        if _SKIP_IS_FAILURE.search(reason):
+            return NO, [f"{ev.ref}: {reason}"]
         if _NOT_APPLICABLE.search(reason):
             return NA, [f"{ev.ref}: {reason}"]
         return UNCHECKED, [f"{ev.ref} not run: {reason}"]
@@ -83,7 +88,7 @@ def _check_outcome(ev: Evidence, records: Dict[str, dict]) -> tuple:
 def _codeql_outcome(ev: Evidence, codeql: CodeqlEvidence) -> tuple:
     if not codeql.ran:
         return UNCHECKED, [f"CodeQL `{ev.ref}` not run: {codeql.reason}"]
-    if codeql.rules_run and ev.ref not in codeql.rules_run:
+    if ev.ref not in codeql.rules_run:
         return UNCHECKED, [f"CodeQL `{ev.ref}` was not part of the analysis"]
     findings = codeql.findings.get(ev.ref, [])
     if findings:

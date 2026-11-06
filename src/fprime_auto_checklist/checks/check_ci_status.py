@@ -10,6 +10,7 @@ reads a saved API response instead (for tests and air-gapped use).
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -51,6 +52,10 @@ def main(argv=None) -> int:
     parser.add_argument("--ignore", action="append", default=[], help="check-run name to ignore (repeatable)")
     parser.add_argument("--check-runs-json", type=Path, default=None, help="saved check-runs API response")
     args = parser.parse_args(argv)
+    if args.repo and not re.fullmatch(r"[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*", args.repo):
+        parser.error(f"--repo must be owner/name, got {args.repo!r}")
+    if args.sha and not re.fullmatch(r"[0-9a-fA-F]{7,40}", args.sha):
+        parser.error(f"--sha must be a 7-40 digit hex commit id, got {args.sha!r}")
     failures = []
     skipped_reason = None
     check_runs = None
