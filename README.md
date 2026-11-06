@@ -107,6 +107,7 @@ not be redistributed.  Accordingly:
 ```bash
 python3 -m pip install -e ".[dev]"
 ruff check . && python3 -m pytest
+codeql pack install codeql/fprime-queries-tests --additional-packs=src/fprime_auto_checklist/queries
 codeql test run codeql/fprime-queries-tests --additional-packs=src/fprime_auto_checklist/queries   # query unit tests
 tools/vendor.sh ../fprime ../fprime-actions   # refresh vendored sources; then update VENDORED.md
 ```

@@ -80,7 +80,7 @@ def test_scope_findings_keeps_module_hand_written_only(tmp_path):
         codeql.load_sarif(path), "Svc/Widget", ["cpp/fprime/no-printf", "cpp/fprime/float-equality"]
     )
     assert ev.ran
-    assert [str(f) for f in ev.findings["cpp/fprime/no-printf"]] == ["Svc/Widget/Widget.cpp:10 printf used"]
+    assert [str(f) for f in ev.findings["cpp/fprime/no-printf"]] == ["Svc/Widget/Widget.cpp:10 printf used; second line"]
     assert ev.findings["cpp/fprime/float-equality"] == []
     assert len(ev.findings["cpp/uninitialized-local"]) == 1
     assert ev.autocode_findings == 1
