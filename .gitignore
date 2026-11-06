@@ -9,3 +9,4 @@ dist/
 *.sarif
 .codeql/
 *.testproj/
+native/build/
