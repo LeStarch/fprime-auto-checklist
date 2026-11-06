@@ -9,6 +9,8 @@
 #include "clang/Lex/Lexer.h"
 #include "llvm/ADT/StringRef.h"
 
+#include <cmath>
+#include <map>
 #include <set>
 #include <string>
 

@@ -9,12 +9,16 @@ void registerSyntaxChecks(ClangTidyCheckFactories &F);
 void registerAssertionChecks(ClangTidyCheckFactories &F);
 void registerHandlerChecks(ClangTidyCheckFactories &F);
 void registerGuardChecks(ClangTidyCheckFactories &F);
+void registerModelChecks(ClangTidyCheckFactories &F);
+void registerStyleChecks(ClangTidyCheckFactories &F);
 
 void registerFprimeChecks(ClangTidyCheckFactories &F) {
   registerSyntaxChecks(F);
   registerAssertionChecks(F);
   registerHandlerChecks(F);
   registerGuardChecks(F);
+  registerModelChecks(F);
+  registerStyleChecks(F);
 }
 
 } // namespace fprime
