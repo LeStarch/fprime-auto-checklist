@@ -126,7 +126,7 @@ def judge_item(item: Item, records: Dict[str, dict], codeql: CodeqlEvidence) -> 
         notes.extend(ev_notes)
     status = _combine(outcomes)
     if any(ev.kind == "human" for ev in item.evidence):
-        tool_outcomes = [o for ev, o in zip(item.evidence, outcomes) if ev.kind != "human"]
+        tool_outcomes = [o for ev, o in zip(item.evidence, outcomes, strict=True) if ev.kind != "human"]
         tool_status = _combine(tool_outcomes)
         if tool_status == YES:
             status = YES

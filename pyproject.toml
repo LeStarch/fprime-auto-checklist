@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Pre-fill the F Prime Component Development Checklist from CodeQL and script evidence"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = []
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -35,7 +35,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.format]
 # Vendored scripts keep their upstream formatting.

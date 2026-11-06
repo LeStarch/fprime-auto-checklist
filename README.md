@@ -28,7 +28,7 @@ proxy for "accurately reflects").
 python3 -m pip install git+https://github.com/LeStarch/fprime-auto-checklist.git
 ```
 
-Python ≥ 3.9, **no third-party Python dependencies**.  For the CodeQL items
+Python ≥ 3.10, **no third-party Python dependencies**.  For the CodeQL items
 install the [CodeQL CLI](https://github.com/github/codeql-cli-binaries/releases)
 (≥ 2.20) on your `PATH` (or pass `--codeql`); it is *not* bundled — see
 [Licensing](#codeql-licensing).  For the FPP/build items activate the
