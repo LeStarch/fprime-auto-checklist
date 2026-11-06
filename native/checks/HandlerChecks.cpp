@@ -66,18 +66,6 @@ bool isUnlockCall(const CallExpr *C) {
   return Name == "pthread_mutex_unlock" || Name == "sem_post";
 }
 
-const FunctionDecl *enclosingFunction(const Stmt *S, ASTContext &Ctx) {
-  DynTypedNode Cur = DynTypedNode::create(*S);
-  while (true) {
-    const auto &Parents = Ctx.getParents(Cur);
-    if (Parents.empty())
-      return nullptr;
-    if (const auto *F = Parents[0].get<FunctionDecl>())
-      return F;
-    Cur = Parents[0];
-  }
-}
-
 } // namespace
 
 // cpp/fprime/internal-port-invoke
@@ -238,6 +226,7 @@ private:
   static void lockedFileAccesses(const FunctionDecl *Fn, ASTContext &Ctx, llvm::ArrayRef<const CallExpr *> Locks,
                                  std::set<const CallExpr *> &Out) {
     CFG::BuildOptions Options;
+    Options.setAllAlwaysAdd();
     std::unique_ptr<CFG> G = CFG::buildCFG(Fn, Fn->getBody(), &Ctx, Options);
     if (!G)
       return;

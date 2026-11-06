@@ -59,7 +59,7 @@ namespace {
 // Collects every DeclRefExpr to V that is part of a condition or an asserted expression.
 class GuardCollector : public RecursiveASTVisitor<GuardCollector> {
 public:
-  GuardCollector(const VarDecl *V, const SourceManager &SM) : V(V), SM(SM) {}
+  explicit GuardCollector(const ValueDecl *V) : V(V) {}
 
   llvm::SmallVector<const Stmt *, 8> Guards;
 
@@ -67,7 +67,9 @@ public:
   bool VisitWhileStmt(WhileStmt *S) { return addIfReads(S->getCond()); }
   bool VisitDoStmt(DoStmt *S) { return addIfReads(S->getCond()); }
   bool VisitForStmt(ForStmt *S) { return addIfReads(S->getCond()); }
-  bool VisitConditionalOperator(ConditionalOperator *S) { return addIfReads(S->getCond()); }
+  bool VisitConditionalOperator(ConditionalOperator *S) {
+    return addIfReads(S->getCond());
+  }
   bool VisitSwitchStmt(SwitchStmt *S) { return addIfReads(S->getCond()); }
   bool VisitBinaryOperator(BinaryOperator *B) {
     // Short-circuit operands are conditions of their own.
@@ -85,16 +87,25 @@ private:
     return true;
   }
   bool reads(const Stmt *S) const {
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(S))
-      return DRE->getDecl() == V;
+    if (const auto *E = dyn_cast<Expr>(S))
+      if (accessedDecl(E) == V)
+        return true;
     for (const Stmt *Child : S->children())
       if (Child && reads(Child))
         return true;
     return false;
   }
-  const VarDecl *V;
-  const SourceManager &SM;
+  const ValueDecl *V;
 };
+
+bool contains(const Stmt *Outer, const Stmt *Inner) {
+  if (Outer == Inner)
+    return true;
+  for (const Stmt *C : Outer->children())
+    if (C && contains(C, Inner))
+      return true;
+  return false;
+}
 
 const CFGBlock *blockOf(const CFG &G, const Stmt *S, unsigned *Index) {
   for (const CFGBlock *B : G) {
@@ -119,31 +130,69 @@ const CFGBlock *blockOf(const CFG &G, const Stmt *S, unsigned *Index) {
 }
 
 const CFGBlock *blockOfOrParent(const CFG &G, const Stmt *S, ASTContext &Ctx, unsigned *Index) {
-  const Stmt *Cur = S;
-  while (Cur) {
-    if (const CFGBlock *B = blockOf(G, Cur, Index))
-      return B;
-    const auto &Parents = Ctx.getParents(*Cur);
+  DynTypedNode Cur = DynTypedNode::create(*S);
+  while (true) {
+    if (const Stmt *CurStmt = Cur.get<Stmt>())
+      if (const CFGBlock *B = blockOf(G, CurStmt, Index))
+        return B;
+    const auto &Parents = Ctx.getParents(Cur);
     if (Parents.empty())
       return nullptr;
-    Cur = Parents[0].get<Stmt>();
+    Cur = Parents[0]; // walks through VarDecl initialisers as well as statements
   }
-  return nullptr;
 }
 
 } // namespace
 
-bool guardedBefore(const VarDecl *V, const Stmt *Use, const FunctionDecl *F, ASTContext &Ctx) {
+const ValueDecl *accessedDecl(const Expr *E) {
+  if (!E)
+    return nullptr;
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    return DRE->getDecl();
+  if (const auto *ME = dyn_cast<MemberExpr>(E))
+    return ME->getMemberDecl();
+  return nullptr;
+}
+
+const FunctionDecl *enclosingFunction(const Stmt *S, ASTContext &Ctx) {
+  DynTypedNode Cur = DynTypedNode::create(*S);
+  while (true) {
+    const auto &Parents = Ctx.getParents(Cur);
+    if (Parents.empty())
+      return nullptr;
+    if (const auto *F = Parents[0].get<FunctionDecl>())
+      return F;
+    Cur = Parents[0];
+  }
+}
+
+bool isConstantValue(const Expr *E, ASTContext &Ctx) {
+  if (!E || E->isValueDependent())
+    return false;
+  Expr::EvalResult Result;
+  return E->EvaluateAsRValue(Result, Ctx) && (Result.Val.isInt() || Result.Val.isFloat());
+}
+
+bool isCheckingAccess(const ValueDecl *V, const Expr *Access, const FunctionDecl *F, ASTContext &Ctx) {
+  if (!F || !F->hasBody())
+    return false;
+  GuardCollector Collector(V);
+  Collector.TraverseStmt(F->getBody());
+  for (const Stmt *Guard : Collector.Guards)
+    if (contains(Guard, Access))
+      return true;
+  return false;
+}
+
+bool guardedBefore(const ValueDecl *V, const Stmt *Use, const FunctionDecl *F, ASTContext &Ctx, bool Strict) {
   if (!V || !Use || !F || !F->hasBody())
     return false;
-  GuardCollector Collector(V, Ctx.getSourceManager());
+  GuardCollector Collector(V);
   Collector.TraverseStmt(F->getBody());
   if (Collector.Guards.empty())
     return false;
-  // Also honour FW_ASSERT(cond) by treating the conditional operator's condition as a guard;
-  // the collector already records ConditionalOperator conditions, which covers the macro expansion.
   CFG::BuildOptions Options;
-  Options.AddImplicitDtors = false;
+  Options.setAllAlwaysAdd();
   std::unique_ptr<CFG> G = CFG::buildCFG(F, F->getBody(), &Ctx, Options);
   if (!G)
     return false;
@@ -152,23 +201,20 @@ bool guardedBefore(const VarDecl *V, const Stmt *Use, const FunctionDecl *F, AST
   if (!UseBlock)
     return false;
   CFGDominatorTreeImpl<false> Dom;
-  AnalysisDeclContextManager Mgr(Ctx);
-  AnalysisDeclContext *ADC = Mgr.getContext(F);
-  Dom.buildDominatorTree(ADC->getCFG());
-  // Build the dominator tree on our own CFG instead (same function, same options).
-  CFGDominatorTreeImpl<false> OwnDom;
-  OwnDom.buildDominatorTree(G.get());
+  Dom.buildDominatorTree(G.get());
   for (const Stmt *Guard : Collector.Guards) {
+    if (contains(Guard, Use))
+      continue; // the use is inside its own guard
     unsigned GuardIndex = 0;
     const CFGBlock *GuardBlock = blockOfOrParent(*G, Guard, Ctx, &GuardIndex);
     if (!GuardBlock)
       continue;
     if (GuardBlock == UseBlock) {
-      if (GuardIndex < UseIndex)
+      if (!Strict || GuardIndex < UseIndex)
         return true;
       continue;
     }
-    if (OwnDom.dominates(GuardBlock, UseBlock))
+    if (Dom.dominates(GuardBlock, UseBlock))
       return true;
   }
   return false;

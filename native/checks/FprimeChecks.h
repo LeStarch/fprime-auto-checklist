@@ -44,9 +44,22 @@ std::string sourceText(const Expr *E, const ASTContext &Ctx);
 // True when Loc is written in the main file or a header of the project (not a system header).
 bool fromSource(SourceLocation Loc, const SourceManager &SM);
 
-// Is `Use` dominated by a condition or assertion that reads variable `V`?
+// Is `Use` dominated by a condition or assertion that reads variable/field `V`?
 // Approximation of FprimeGuards.qll::guardedBefore within one function body.
-bool guardedBefore(const VarDecl *V, const Stmt *Use, const FunctionDecl *F, ASTContext &Ctx);
+// `Strict` = false also accepts a guard in the same basic block after the use (CodeQL bbDominates).
+bool guardedBefore(const ValueDecl *V, const Stmt *Use, const FunctionDecl *F, ASTContext &Ctx, bool Strict = true);
+
+// Is `Access` (a read of V) itself part of a condition or asserted expression? (checkingAccess)
+bool isCheckingAccess(const ValueDecl *V, const Expr *Access, const FunctionDecl *F, ASTContext &Ctx);
+
+// The variable or field a DeclRefExpr/MemberExpr reads, else nullptr.
+const ValueDecl *accessedDecl(const Expr *E);
+
+// The innermost function whose body contains S.
+const FunctionDecl *enclosingFunction(const Stmt *S, ASTContext &Ctx);
+
+// Can the expression be folded to a constant?
+bool isConstantValue(const Expr *E, ASTContext &Ctx);
 
 } // namespace fprime
 } // namespace tidy
