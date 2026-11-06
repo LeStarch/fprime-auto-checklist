@@ -122,6 +122,11 @@ codeql test run codeql/fprime-queries-tests --additional-packs=src/fprime_auto_c
 tools/vendor.sh ../fprime ../fprime-actions   # refresh vendored sources; then update VENDORED.md
 ```
 
+To try the tool on the bundled `tests/fixtures/Svc/Widget` component, copy
+`tests/fixtures` out of this git checkout first: its `docs/hardware-run.md`
+carries a placeholder commit id, which check C2 (5.3) rightly rejects inside a
+real repository (the tests do this via `_copy_widget`).
+
 Layout: `src/fprime_auto_checklist/checklist.py` (items + evidence map),
 `codeql.py` (license gate, CLI driver, SARIF scoping), `runner.py` (check
 orchestration), `results.py` (verdict composition), `render.py`, `cli.py`;
