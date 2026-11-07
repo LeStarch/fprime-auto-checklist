@@ -9,3 +9,4 @@
 -26 call through a const-qualified function pointer (const global); CodeQL drops the qualifier on variable access
 -28 call through a const-qualified function pointer (const array element); CodeQL drops the qualifier on variable access
 -44 call through a const-qualified function pointer (const local); CodeQL drops the qualifier on variable access
+-53 call through a const-qualified function pointer (dereferenced const pointer to const pointer); CodeQL drops the qualifier on variable access

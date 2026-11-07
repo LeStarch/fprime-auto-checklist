@@ -130,7 +130,12 @@ def main(argv=None) -> int:
                 failures += 1
             continue
         total += 1
-        want = expected_lines(query_dir)
+        try:
+            want = expected_lines(query_dir)
+        except ValueError as exc:
+            print(f"FAIL {query_dir.name:40s} {exc}")
+            failures += 1
+            continue
         diags = run_clang_tidy(args.clang_tidy, args.plugin, check, query_dir / "test.cpp", [])
         got = {int(d["line"]) for d in diags if Path(d["file"]).name == "test.cpp"}
         status = "ok  " if got == want else "FAIL"

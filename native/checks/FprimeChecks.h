@@ -58,6 +58,9 @@ bool isCheckingAccess(const ValueDecl *V, const Expr *Access, const FunctionDecl
 // The variable or field a DeclRefExpr/MemberExpr reads, else nullptr.
 const ValueDecl *accessedDecl(const Expr *E);
 const CFGBlock *blockOfOrParent(const CFG &G, const Stmt *S, ASTContext &Ctx, unsigned *Index);
+// True when every path from F's entry to Use executes one of Defs (statements in F's body) first,
+// i.e. the value live at Use is never the one defined at entry (SSA: no phi mixes in the old value).
+bool definedOnEveryPath(llvm::ArrayRef<const Stmt *> Defs, const Stmt *Use, const FunctionDecl *F, ASTContext &Ctx);
 
 // The innermost function whose body contains S.
 const FunctionDecl *enclosingFunction(const Stmt *S, ASTContext &Ctx);

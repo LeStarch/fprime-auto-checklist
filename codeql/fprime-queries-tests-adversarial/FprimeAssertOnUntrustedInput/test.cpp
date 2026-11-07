@@ -29,4 +29,7 @@ struct Comp {
   void x_internalInterfaceHandler(U32 arg) { FW_ASSERT(arg < 10); }
   void N_cmdHandler(FwOpcodeType op, U32 seq, U32 arg) { U32* p = &arg; FW_ASSERT(*p < 10); }
   void O_cmdHandler(FwOpcodeType op, U32 seq, U32 arg) { arg = 5; FW_ASSERT(arg < 10); }
+  void P_cmdHandler(FwOpcodeType op, U32 seq, U32 arg) { if (seq) { arg = 5; } FW_ASSERT(arg < 10); }
+  void Q_cmdHandler(FwOpcodeType op, U32 seq, U32 arg) { if (seq) { arg = 5; } else { arg = 6; } FW_ASSERT(arg < 10); }
+  void R_cmdHandler(FwOpcodeType op, U32 seq, U32 arg) { for (U32 i = 0; i < seq; i++) { FW_ASSERT(arg < 10); arg = 5; } }
 };

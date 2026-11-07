@@ -9,3 +9,5 @@
 | test.cpp:23:68:23:86 | FW_ASSERT(cond,__VA_ARGS__...) | FW_ASSERT checks parameter value from paramGet_LIMIT, which originates from the ground; validate and report instead. |
 | test.cpp:24:45:24:77 | FW_ASSERT(cond,__VA_ARGS__...) | FW_ASSERT checks parameter value from paramGet_LIMIT, which originates from the ground; validate and report instead. |
 | test.cpp:30:73:30:90 | FW_ASSERT(cond,__VA_ARGS__...) | FW_ASSERT checks command argument arg, which originates from the ground; validate and report instead. |
+| test.cpp:32:80:32:98 | FW_ASSERT(cond,__VA_ARGS__...) | FW_ASSERT checks command argument arg, which originates from the ground; validate and report instead. |
+| test.cpp:34:90:34:108 | FW_ASSERT(cond,__VA_ARGS__...) | FW_ASSERT checks command argument arg, which originates from the ground; validate and report instead. |

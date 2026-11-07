@@ -19,3 +19,4 @@
 | test.cpp:43:44:43:44 | p | Parameter p is dereferenced without first being checked (e.g. with FW_ASSERT or a condition). |
 | test.cpp:44:48:44:48 | p | Parameter p is dereferenced without first being checked (e.g. with FW_ASSERT or a condition). |
 | test.cpp:47:28:47:28 | p | Parameter p is dereferenced without first being checked (e.g. with FW_ASSERT or a condition). |
+| test.cpp:50:64:50:64 | p | Parameter p is dereferenced without first being checked (e.g. with FW_ASSERT or a condition). |

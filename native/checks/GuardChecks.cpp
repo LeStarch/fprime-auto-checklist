@@ -252,28 +252,7 @@ private:
   static bool reassignedBefore(const ParmVarDecl *P, const Stmt *Use, const FunctionDecl *Fn, ASTContext &Ctx) {
     llvm::SmallVector<const Stmt *, 4> Defs;
     collectDefs(Fn->getBody(), P, Defs);
-    if (Defs.empty())
-      return false;
-    CFG::BuildOptions BuildOpts;
-    BuildOpts.setAllAlwaysAdd();
-    std::unique_ptr<CFG> G = CFG::buildCFG(Fn, Fn->getBody(), &Ctx, BuildOpts);
-    if (!G)
-      return false;
-    unsigned UseIndex = 0;
-    const CFGBlock *UseBlock = blockOfOrParent(*G, Use, Ctx, &UseIndex);
-    if (!UseBlock)
-      return false;
-    CFGDominatorTreeImpl<false> Dom;
-    Dom.buildDominatorTree(G.get());
-    for (const Stmt *D : Defs) {
-      unsigned DefIndex = 0;
-      const CFGBlock *DefBlock = blockOfOrParent(*G, D, Ctx, &DefIndex);
-      if (!DefBlock)
-        continue;
-      if (DefBlock == UseBlock ? DefIndex < UseIndex : Dom.dominates(DefBlock, UseBlock))
-        return true;
-    }
-    return false;
+    return definedOnEveryPath(Defs, Use, Fn, Ctx);
   }
   static void collectDefs(const Stmt *S, const ParmVarDecl *P, llvm::SmallVectorImpl<const Stmt *> &Out) {
     if (!S || isa<LambdaExpr>(S))

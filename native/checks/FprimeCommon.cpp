@@ -234,6 +234,48 @@ bool guardedBefore(const ValueDecl *V, const Stmt *Use, const FunctionDecl *F, A
   return false;
 }
 
+
+bool definedOnEveryPath(llvm::ArrayRef<const Stmt *> Defs, const Stmt *Use, const FunctionDecl *F, ASTContext &Ctx) {
+  if (Defs.empty() || !F || !F->getBody())
+    return false;
+  CFG::BuildOptions BuildOpts;
+  BuildOpts.setAllAlwaysAdd();
+  std::unique_ptr<CFG> G = CFG::buildCFG(F, F->getBody(), &Ctx, BuildOpts);
+  if (!G)
+    return false;
+  unsigned UseIndex = 0;
+  const CFGBlock *UseBlock = blockOfOrParent(*G, Use, Ctx, &UseIndex);
+  if (!UseBlock)
+    return false;
+  // First definition in each block, by element index.
+  llvm::DenseMap<const CFGBlock *, unsigned> FirstDef;
+  for (const Stmt *D : Defs) {
+    unsigned Index = 0;
+    if (const CFGBlock *B = blockOfOrParent(*G, D, Ctx, &Index)) {
+      auto It = FirstDef.find(B);
+      if (It == FirstDef.end() || Index < It->second)
+        FirstDef[B] = Index;
+    }
+  }
+  // Can the use be reached from the entry without executing a definition first?
+  llvm::SmallPtrSet<const CFGBlock *, 32> Visited;
+  llvm::SmallVector<const CFGBlock *, 32> Work{&G->getEntry()};
+  while (!Work.empty()) {
+    const CFGBlock *B = Work.pop_back_val();
+    if (!Visited.insert(B).second)
+      continue;
+    auto Def = FirstDef.find(B);
+    if (B == UseBlock && (Def == FirstDef.end() || UseIndex <= Def->second))
+      return false;
+    if (Def != FirstDef.end())
+      continue; // every path through this block is redefined before leaving it
+    for (const CFGBlock *Succ : B->succs())
+      if (Succ)
+        Work.push_back(Succ);
+  }
+  return true;
+}
+
 } // namespace fprime
 } // namespace tidy
 } // namespace clang

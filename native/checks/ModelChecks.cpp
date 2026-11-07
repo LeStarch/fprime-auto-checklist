@@ -269,7 +269,8 @@ public:
       return;
     // Sources: command arguments and parameter-get results, propagated through local variables.
     std::map<const ValueDecl *, std::string> Tainted;
-    std::map<const ValueDecl *, SourceLocation> Killed;
+    // Assignments of an untainted value end the taint only where every path passes one.
+    std::map<const ValueDecl *, llvm::SmallVector<const Stmt *, 4>> Kills;
     if (Fn->getDeclName().isIdentifier() && Fn->getName().endswith("_cmdHandler"))
       for (unsigned I = 2; I < Fn->getNumParams(); ++I)
         Tainted[Fn->getParamDecl(I)] = "command argument " + Fn->getParamDecl(I)->getNameAsString();
@@ -293,8 +294,8 @@ public:
         if (!V || !V->isLocalVarDeclOrParm())
           continue;
         auto What = valueSource(B->getRHS(), Tainted);
-        if (!What && Tainted.count(V) && !Killed.count(V))
-          Killed[V] = B->getBeginLoc();
+        if (!What && Tainted.count(V) && !llvm::is_contained(Kills[V], B))
+          Kills[V].push_back(B);
         if (What && !Tainted.count(V)) {
           Tainted[V] = *What;
           Changed = true;
@@ -311,7 +312,7 @@ public:
       const Expr *Asserted = assertedCondition(C);
       if (!Asserted || enclosingFunction(C, *R.Context) != Fn)
         continue;
-      auto What = sourceOf(Asserted, Tainted, Killed, SM);
+      auto What = sourceOf(Asserted, Tainted, Kills, Fn, *R.Context);
       if (!What)
         continue;
       SourceLocation Expansion = SM.getExpansionLoc(Loc);
@@ -348,15 +349,14 @@ private:
     return llvm::None;
   }
   static llvm::Optional<std::string> sourceOf(const Expr *E, const std::map<const ValueDecl *, std::string> &Tainted,
-                                              const std::map<const ValueDecl *, SourceLocation> &Killed,
-                                              const SourceManager &SM) {
+                                              const std::map<const ValueDecl *, llvm::SmallVector<const Stmt *, 4>> &Kills,
+                                              const FunctionDecl *Fn, ASTContext &Ctx) {
     llvm::SmallVector<const Expr *, 16> Exprs;
     collect<Expr>(E, Exprs);
     for (const Expr *X : Exprs) {
       if (const ValueDecl *V = accessedDecl(X))
         if (auto It = Tainted.find(V); It != Tainted.end()) {
-          auto K = Killed.find(V);
-          if (K != Killed.end() && SM.isBeforeInTranslationUnit(K->second, SM.getExpansionLoc(X->getBeginLoc())))
+          if (auto K = Kills.find(V); K != Kills.end() && definedOnEveryPath(K->second, X, Fn, Ctx))
             continue;
           return It->second;
         }

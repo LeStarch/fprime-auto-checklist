@@ -49,3 +49,5 @@ void cases(Fn p, CFn cp, const Fn cp2, Fn& rp, const Fn& crp, Table t, Table* pt
 }
 template <typename F> void tmpl(F f) { f(1); }
 void inst() { tmpl(g_fn); tmpl(g_cfn); }
+void constPtrToPtr(Fn* const cpp) { (**cpp)(1); }
+void constPtrToConstPtr(const Fn* const cpp) { (**cpp)(1); }

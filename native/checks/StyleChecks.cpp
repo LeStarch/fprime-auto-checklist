@@ -595,15 +595,15 @@ public:
     // parentheses, implicit conversions and dereferences) is const-qualified: `cp(1)`,
     // `(*cp)(1)`, `table[0](1)` with a const element, a const field.  CodeQL drops the qualifier
     // of const variables on access and reports them; that is a CodeQL defect we do not mirror.
-    const Expr *Ptr = Callee;
-    if (const auto *BO = dyn_cast<BinaryOperator>(Callee); BO && BO->isPtrMemOp())
-      Ptr = BO->getRHS();
-    for (;;) {
-      Ptr = Ptr->IgnoreParenImpCasts();
-      const auto *UO = dyn_cast<UnaryOperator>(Ptr);
-      if (!UO || UO->getOpcode() != UO_Deref)
+    const Expr *Ptr = Callee->IgnoreParenImpCasts();
+    if (const auto *BO = dyn_cast<BinaryOperator>(Ptr); BO && BO->isPtrMemOp())
+      Ptr = BO->getRHS()->IgnoreParenImpCasts();
+    // `(*cp)(1)`: the dereference yields the function, so the pointer is `cp`.  `(**pp)(1)` with
+    // `Fn *const pp` stops at `*pp`, the (non-const) function pointer itself.
+    while (const auto *UO = dyn_cast<UnaryOperator>(Ptr)) {
+      if (UO->getOpcode() != UO_Deref || !UO->getType()->isFunctionType())
         break;
-      Ptr = UO->getSubExpr();
+      Ptr = UO->getSubExpr()->IgnoreParenImpCasts();
     }
     if (T.isConstQualified() || Ptr->getType().isConstQualified())
       return;
