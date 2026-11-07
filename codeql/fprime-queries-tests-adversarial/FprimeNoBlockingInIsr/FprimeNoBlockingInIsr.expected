@@ -1,0 +1,10 @@
+| test.cpp:14:5:14:9 | call to sleep | Blocking operation sleep called in interrupt service routine uart_isr. |
+| test.cpp:15:5:15:12 | call to usleep | Blocking operation usleep called in interrupt service routine uart_isr. |
+| test.cpp:16:5:16:15 | call to usleep | Blocking operation usleep called in interrupt service routine uart_isr. |
+| test.cpp:17:13:17:16 | call to lock | Blocking operation lock called in interrupt service routine uart_isr. |
+| test.cpp:18:19:18:22 | call to lock | Blocking operation lock called in interrupt service routine uart_isr. |
+| test.cpp:19:5:19:19 | call to delay | Blocking operation delay called in interrupt service routine uart_isr. |
+| test.cpp:24:20:24:34 | call to receiveBlocking | Blocking operation receiveBlocking called in interrupt service routine uart_isr. |
+| test.cpp:29:5:29:10 | call to select | Blocking operation select called in interrupt service routine uart_isr. |
+| test.cpp:35:44:35:48 | call to sleep | Blocking operation sleep called in interrupt service routine tmpl_isr. |
+| test.cpp:37:48:37:52 | call to sleep | Blocking operation sleep called in interrupt service routine attributed. |

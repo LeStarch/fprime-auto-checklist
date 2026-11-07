@@ -1,0 +1,7 @@
+| test.cpp:3:3:3:13 | declaration | Function f is declared inside the body of function outer. |
+| test.cpp:4:3:4:15 | declaration | Function g is declared inside the body of function outer. |
+| test.cpp:4:3:4:15 | declaration | Function h is declared inside the body of function outer. |
+| test.cpp:5:3:5:23 | declaration | Function e is declared inside the body of function outer. |
+| test.cpp:12:19:12:31 | declaration | Function inner is declared inside the body of function operator(). |
+| test.cpp:15:37:15:45 | declaration | Function tfn is declared inside the body of function tmpl. |
+| test.cpp:15:37:15:45 | declaration | Function tfn is declared inside the body of function tmpl. |

@@ -1,0 +1,10 @@
+| test.cpp:4:20:4:51 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:6:3:10:3 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:16:7:16:38 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:21:26:21:75 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:22:22:22:41 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:24:26:24:38 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:25:39:25:70 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:25:39:25:70 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:25:39:25:70 | switch (...) ...  | This switch statement does not have a default case. |
+| test.cpp:27:38:27:69 | switch (...) ...  | This switch statement does not have a default case. |

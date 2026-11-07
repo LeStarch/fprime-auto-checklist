@@ -10,3 +10,4 @@ dist/
 .codeql/
 *.testproj/
 native/build/
+*.testproj/

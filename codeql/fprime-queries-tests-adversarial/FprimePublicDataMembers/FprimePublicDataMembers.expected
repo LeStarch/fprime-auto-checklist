@@ -1,0 +1,11 @@
+| test.cpp:2:27:2:27 | a | Data member a of class Plain is public; consider making it private or protected. |
+| test.cpp:2:30:2:30 | b | Data member b of class Plain is public; consider making it private or protected. |
+| test.cpp:4:34:4:34 | a | Data member a of class StaticFnOnly is public; consider making it private or protected. |
+| test.cpp:5:32:5:32 | a | Data member a of class AssignOnly is public; consider making it private or protected. |
+| test.cpp:7:77:7:77 | r | Data member r of class ConstMembers is public; consider making it private or protected. |
+| test.cpp:10:46:10:46 | a | Data member a of class Tmpl<T> is public; consider making it private or protected. |
+| test.cpp:12:61:12:62 | in | Data member in of class Outer is public; consider making it private or protected. |
+| test.cpp:15:27:15:29 | pub | Data member pub of class Mixed is public; consider making it private or protected. |
+| test.cpp:16:33:16:35 | arr | Data member arr of class ArrayMember is public; consider making it private or protected. |
+| test.cpp:16:51:16:54 | carr | Data member carr of class ArrayMember is public; consider making it private or protected. |
+| test.cpp:17:43:17:43 | p | Data member p of class PointerToConst is public; consider making it private or protected. |

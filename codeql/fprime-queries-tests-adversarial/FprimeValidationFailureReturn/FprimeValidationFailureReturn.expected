@@ -1,0 +1,11 @@
+| test.cpp:8:5:10:5 | if (...) ...  | This validation-failure branch in handler A_cmdHandler sends a failed command response but does not return. |
+| test.cpp:14:5:14:78 | if (...) ...  | This validation-failure branch in handler B_cmdHandler sends a failed command response but does not return. |
+| test.cpp:34:5:36:5 | if (...) ...  | This validation-failure branch in handler E_cmdHandler sends a failed command response but does not return. |
+| test.cpp:44:7:46:7 | if (...) ...  | This validation-failure branch in handler F_cmdHandler sends a failed command response but does not return. |
+| test.cpp:64:5:67:5 | if (...) ...  | This validation-failure branch in handler H_cmdHandler sends a failed command response but does not return. |
+| test.cpp:68:5:71:5 | if (...) ...  | This validation-failure branch in handler H_cmdHandler sends a failed command response but does not return. |
+| test.cpp:84:9:86:9 | if (...) ...  | This validation-failure branch in handler I_cmdHandler sends a failed command response but does not return. |
+| test.cpp:89:9:91:9 | if (...) ...  | This validation-failure branch in handler I_cmdHandler sends a failed command response but does not return. |
+| test.cpp:105:5:107:5 | if (...) ...  | This validation-failure branch in handler schedIn_handler sends a failed command response but does not return. |
+| test.cpp:111:5:113:5 | if (...) ...  | This validation-failure branch in handler x_internalInterfaceHandler sends a failed command response but does not return. |
+| test.cpp:117:5:119:5 | if (...) ...  | This validation-failure branch in handler J_cmdHandler sends a failed command response but does not return. |

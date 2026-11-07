@@ -80,6 +80,12 @@ def main(argv=None) -> int:
     ap.add_argument("--only", action="append", default=[], help="Query directory name(s) to run")
     ap.add_argument("--show", action="store_true", help="Print every diagnostic")
     ap.add_argument("--skip-missing", action="store_true", help="Ignore queries with no ported check")
+    ap.add_argument(
+        "--fixtures",
+        type=Path,
+        default=FIXTURES,
+        help="Fixture tree to run (default: the vendored CodeQL query tests)",
+    )
     args = ap.parse_args(argv)
 
     listed = subprocess.run(
@@ -92,7 +98,7 @@ def main(argv=None) -> int:
 
     failures = 0
     total = 0
-    for query_dir in sorted(p for p in FIXTURES.iterdir() if p.is_dir()):
+    for query_dir in sorted(p for p in args.fixtures.iterdir() if p.is_dir()):
         if args.only and query_dir.name not in args.only:
             continue
         rule = rule_id(query_dir)

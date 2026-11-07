@@ -1,0 +1,7 @@
+| test.cpp:1:1:1:16 | // TODO: flagged | Comment contains the incomplete-code marker TODO. |
+| test.cpp:4:1:4:24 | /* FIXME inside block */ | Comment contains the incomplete-code marker FIXME. |
+| test.cpp:5:1:8:3 | /*\n * multi-line\n * TBD on third line\n */ | Comment contains the incomplete-code marker TBD. |
+| test.cpp:11:1:11:23 | //! FIXME: doxygen bang | Comment contains the incomplete-code marker FIXME. |
+| test.cpp:12:13:12:45 | // TODO in macro trailing comment | Comment contains the incomplete-code marker TODO. |
+| test.cpp:14:1:14:20 | // TODO inside #if 0 | Comment contains the incomplete-code marker TODO. |
+| test.cpp:19:8:19:15 | // (TBD) | Comment contains the incomplete-code marker TBD. |

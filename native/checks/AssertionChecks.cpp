@@ -45,10 +45,27 @@ auto assertion() { return conditionalOperator(isOutermostAssertExpansion()).bind
 
 bool bodyMayHaveSideEffects(const Stmt *S, unsigned Depth);
 
+// Functions CodeQL models as side-effect free (semmle/code/cpp/models/implementations/Pure.qll).
+bool isModelledPure(const FunctionDecl *F) {
+  if (!F->getDeclName().isIdentifier() || !F->isGlobal())
+    return false;
+  static const char *const Names[] = {"abs",     "labs",    "llabs",   "imaxabs", "atof",     "atoi",    "atol",
+                                      "atoll",   "strcasestr", "strchnul", "strchr", "strcmp", "strcspn", "strlen",
+                                      "strncmp", "strnlen", "strrchr", "strspn",  "strstr",   "strtod",  "strtof",
+                                      "strtol",  "strtoll", "strtoq",  "strtoul", "strtoull", "memcmp",  "memchr",
+                                      "strcasecmp", "strncasecmp", "wcslen", "wcscmp", "wcsncmp"};
+  for (const char *N : Names)
+    if (F->getName() == N)
+      return true;
+  return false;
+}
+
 bool callMayHaveSideEffects(const CallExpr *Call, unsigned Depth) {
   const FunctionDecl *Callee = Call->getDirectCallee();
   if (!Callee)
     return true; // indirect call
+  if (isModelledPure(Callee))
+    return false;
   if (const auto *M = dyn_cast<CXXMethodDecl>(Callee)) {
     if (M->isConst())
       return false;
@@ -65,9 +82,14 @@ bool callMayHaveSideEffects(const CallExpr *Call, unsigned Depth) {
   if (Callee->hasAttr<ConstAttr>() || Callee->hasAttr<PureAttr>() || Callee->isConstexpr())
     return false;
   const FunctionDecl *Def = nullptr;
-  if (!Callee->hasBody(Def) || !Def || Depth > 3)
+  if (!Callee->hasBody(Def) || !Def || Depth > 64)
     return true;
-  return bodyMayHaveSideEffects(Def->getBody(), Depth + 1);
+  static thread_local llvm::SmallPtrSet<const FunctionDecl *, 16> InProgress;
+  if (!InProgress.insert(Def).second)
+    return false; // recursion: no additional side effects on this path
+  bool Result = bodyMayHaveSideEffects(Def->getBody(), Depth + 1);
+  InProgress.erase(Def);
+  return Result;
 }
 
 // Does the statement write non-local state, allocate, throw, or call something that may?
@@ -103,7 +125,18 @@ bool bodyMayHaveSideEffects(const Stmt *S, unsigned Depth) {
 }
 
 // Direct side effects of the asserted expression itself (CodeQL isSideEffecting over getAChild*()).
-bool exprIsSideEffecting(const Stmt *S) {
+bool isErrnoRead(const CallExpr *C, const ASTContext &Ctx) {
+  SourceLocation Loc = C->getBeginLoc();
+  const SourceManager &SM = Ctx.getSourceManager();
+  while (Loc.isMacroID()) {
+    if (Lexer::getImmediateMacroName(Loc, SM, Ctx.getLangOpts()) == "errno")
+      return true;
+    Loc = SM.getImmediateMacroCallerLoc(Loc);
+  }
+  return false;
+}
+
+bool exprIsSideEffecting(const Stmt *S, const ASTContext &Ctx) {
   if (!S)
     return false;
   if (const auto *B = dyn_cast<BinaryOperator>(S); B && B->isAssignmentOp())
@@ -112,19 +145,65 @@ bool exprIsSideEffecting(const Stmt *S) {
     return true;
   if (isa<CXXNewExpr>(S) || isa<CXXDeleteExpr>(S) || isa<CXXThrowExpr>(S))
     return true;
-  if (const auto *C = dyn_cast<CallExpr>(S); C && !isa<CXXOperatorCallExpr>(C) && callMayHaveSideEffects(C, 0))
+  if (const auto *C = dyn_cast<CallExpr>(S);
+      C && !isa<CXXOperatorCallExpr>(C) && !isErrnoRead(C, Ctx) && callMayHaveSideEffects(C, 0))
     return true;
   if (const auto *C = dyn_cast<CXXOperatorCallExpr>(S); C && C->isAssignmentOp())
     return true;
   for (const Stmt *Child : S->children())
-    if (exprIsSideEffecting(Child))
+    if (exprIsSideEffecting(Child, Ctx))
       return true;
   return false;
 }
 
-} // namespace
+// Mirrors CodeQL's Expr.getValue(): a value exists only when every leaf is a literal, an
+// enumerator, a const variable with a constant initialiser, sizeof, or a constexpr call.
+// Addresses never fold, and an enumerator read through an object (`obj.ENUMERATOR`) does not either.
+bool codeqlFoldable(const Expr *E) {
+  if (!E)
+    return false;
+  E = E->IgnoreParens();
+  if (isa<IntegerLiteral>(E) || isa<FloatingLiteral>(E) || isa<CharacterLiteral>(E) || isa<CXXBoolLiteralExpr>(E) ||
+      isa<CXXNullPtrLiteralExpr>(E) || isa<StringLiteral>(E) || isa<UnaryExprOrTypeTraitExpr>(E))
+    return true;
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    if (isa<EnumConstantDecl>(DRE->getDecl()))
+      return true;
+    const auto *V = dyn_cast<VarDecl>(DRE->getDecl());
+    return V && !V->getType()->isArrayType() && !V->getType()->isPointerType() && V->getType().isConstQualified() &&
+           V->getAnyInitializer() && V->getAnyInitializer()->isCXX11ConstantExpr(V->getASTContext());
+  }
+  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    const auto *V = dyn_cast<VarDecl>(ME->getMemberDecl());
+    return V && V->isStaticDataMember() && V->getType().isConstQualified() && V->getAnyInitializer() &&
+           V->getAnyInitializer()->isCXX11ConstantExpr(V->getASTContext());
+  }
+  if (const auto *Subst = dyn_cast<SubstNonTypeTemplateParmExpr>(E))
+    return codeqlFoldable(Subst->getReplacement());
+  if (const auto *U = dyn_cast<UnaryOperator>(E)) {
+    if (U->getOpcode() == UO_AddrOf || U->getOpcode() == UO_Deref)
+      return false;
+    return codeqlFoldable(U->getSubExpr());
+  }
+  if (const auto *Call = dyn_cast<CallExpr>(E)) {
+    const FunctionDecl *F = Call->getDirectCallee();
+    if (!F || !F->isConstexpr())
+      return false;
+    for (const Expr *A : Call->arguments())
+      if (!codeqlFoldable(A))
+        return false;
+    return true;
+  }
+  if (isa<CastExpr>(E) || isa<BinaryOperator>(E) || isa<ConditionalOperator>(E)) {
+    for (const Stmt *C : E->children())
+      if (!codeqlFoldable(dyn_cast_or_null<Expr>(C)))
+        return false;
+    return true;
+  }
+  return false;
+}
 
-bool UseOfAssertionsConstantCheck_readsThroughObject(const Stmt *S);
+} // namespace
 
 // cpp/fprime/jpl-c/use-of-assertions-constant
 class UseOfAssertionsConstantCheck : public ClangTidyCheck {
@@ -135,8 +214,12 @@ public:
     const Expr *Asserted = assertedCondition(R.Nodes.getNodeAs<ConditionalOperator>("assert"));
     if (!Asserted || Asserted->isValueDependent())
       return;
-    if (readsThroughObject(Asserted))
-      return; // CodeQL does not fold `obj.ENUMERATOR`; neither do we
+    if (!codeqlFoldable(Asserted))
+      return;
+    if (isa<StringLiteral>(Asserted->IgnoreParens())) {
+      diag(Asserted->getBeginLoc(), "This assertion is always true.");
+      return;
+    }
     Expr::EvalResult Result;
     if (!Asserted->EvaluateAsRValue(Result, *R.Context) || !Result.Val.isInt())
       return;
@@ -146,21 +229,7 @@ public:
       return; // FW_ASSERT(false) / FW_ASSERT(0): unreachable-code idiom
     diag(Asserted->getBeginLoc(), IsZero ? "This assertion is always false." : "This assertion is always true.");
   }
-
-private:
-  static bool readsThroughObject(const Stmt *S) { return UseOfAssertionsConstantCheck_readsThroughObject(S); }
 };
-
-bool UseOfAssertionsConstantCheck_readsThroughObject(const Stmt *S) {
-  if (const auto *ME = dyn_cast<MemberExpr>(S))
-    if (!isa<CXXThisExpr>(ME->getBase()->IgnoreParenImpCasts()) &&
-        (isa<EnumConstantDecl>(ME->getMemberDecl()) || isa<VarDecl>(ME->getMemberDecl())))
-      return true;
-  for (const Stmt *C : S->children())
-    if (C && UseOfAssertionsConstantCheck_readsThroughObject(C))
-      return true;
-  return false;
-}
 
 // cpp/fprime/jpl-c/use-of-assertions-non-boolean
 class UseOfAssertionsNonBooleanCheck : public ClangTidyCheck {
@@ -171,7 +240,11 @@ public:
     const Expr *Asserted = assertedCondition(R.Nodes.getNodeAs<ConditionalOperator>("assert"));
     if (!Asserted || Asserted->isTypeDependent())
       return;
-    if (Asserted->getType().getUnqualifiedType()->isBooleanType())
+    const Expr *Inner = Asserted->IgnoreParenCasts();
+    QualType T = Inner->getType();
+    if (const ValueDecl *VD = accessedDecl(Inner))
+      T = VD->getType();
+    if (!T->isReferenceType() && T.getUnqualifiedType()->isBooleanType())
       return;
     diag(Asserted->getBeginLoc(), "Assertions should be defined as Boolean tests.");
   }
@@ -186,7 +259,7 @@ public:
     const Expr *Asserted = assertedCondition(R.Nodes.getNodeAs<ConditionalOperator>("assert"));
     if (!Asserted || Asserted->isInstantiationDependent())
       return;
-    if (exprIsSideEffecting(Asserted))
+    if (exprIsSideEffecting(Asserted, *R.Context))
       diag(Asserted->getBeginLoc(), "Assertions should not have side effects.");
   }
 };
@@ -212,8 +285,9 @@ public:
     StringRef Text = Lexer::getSourceText(CharSourceRange::getTokenRange(Range), SM, R.Context->getLangOpts());
     if (linesOfCode(Text) <= 10)
       return;
-    static const std::regex Asserts("\\b(FW_ASSERT|assert|static_assert|(ASSERT|EXPECT)_[A-Z_0-9]+)\\s*\\(");
-    if (std::regex_search(Text.begin(), Text.end(), Asserts))
+    if (isa<CXXMethodDecl>(Fn) && cast<CXXMethodDecl>(Fn)->getParent()->isLambda())
+      return; // CodeQL does not report lambda call operators
+    if (containsAssertion(Fn->getBody(), *R.Context))
       return;
     QualType Ret = Fn->getReturnType().getUnqualifiedType();
     if (Ret->isBooleanType() || Ret->isEnumeralType() || isFppEnumClass(Ret))
@@ -227,6 +301,30 @@ public:
   }
 
 private:
+  // An FW_ASSERT/assert or gtest ASSERT_*/EXPECT_* expansion whose enclosing function is Fn
+  // (so not inside a lambda or local class). static_assert is a declaration and does not count.
+  static bool containsAssertion(const Stmt *S, const ASTContext &Ctx) {
+    if (!S || isa<LambdaExpr>(S))
+      return false;
+    if (const auto *DS = dyn_cast<DeclStmt>(S))
+      for (const Decl *D : DS->decls())
+        if (isa<CXXRecordDecl>(D))
+          return false;
+    if (isa<Expr>(S)) {
+      SourceLocation Loc = S->getBeginLoc();
+      const SourceManager &SM = Ctx.getSourceManager();
+      while (Loc.isMacroID()) {
+        StringRef Name = Lexer::getImmediateMacroName(Loc, SM, Ctx.getLangOpts());
+        if (isAssertMacro(Name) || Name.startswith("ASSERT_") || Name.startswith("EXPECT_"))
+          return true;
+        Loc = SM.getImmediateMacroCallerLoc(Loc);
+      }
+    }
+    for (const Stmt *C : S->children())
+      if (containsAssertion(C, Ctx))
+        return true;
+    return false;
+  }
   static unsigned linesOfCode(StringRef Text) {
     unsigned Count = 0;
     bool InBlockComment = false;

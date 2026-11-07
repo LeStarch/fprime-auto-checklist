@@ -1,0 +1,4 @@
+| test.cpp:6:44:6:49 | call to usleep | Blocking operation usleep called in rate-group handler schedIn_handler. |
+| test.cpp:6:63:6:66 | call to lock | Blocking operation lock called in rate-group handler schedIn_handler. |
+| test.cpp:7:54:7:58 | call to sleep | Blocking operation sleep called in rate-group handler rateGroup_schedIn_handler. |
+| test.cpp:16:42:16:46 | call to sleep | Blocking operation sleep called in rate-group handler schedIn_handler. |

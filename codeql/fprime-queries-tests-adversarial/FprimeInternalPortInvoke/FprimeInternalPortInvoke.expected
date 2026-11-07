@@ -1,0 +1,8 @@
+| test.cpp:9:29:9:57 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |
+| test.cpp:10:31:10:59 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |
+| test.cpp:11:26:11:34 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |
+| test.cpp:14:47:14:75 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |
+| test.cpp:15:55:15:83 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |
+| test.cpp:16:42:16:70 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |
+| test.cpp:16:42:16:70 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |
+| test.cpp:21:30:21:58 | call to tick_internalInterfaceHandler | Internal port handler tick_internalInterfaceHandler is called directly; use the auto-coded tick_internalInterfaceInvoke instead. |

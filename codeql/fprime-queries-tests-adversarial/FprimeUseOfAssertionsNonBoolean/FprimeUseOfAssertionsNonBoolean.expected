@@ -1,0 +1,18 @@
+| test.cpp:13:13:13:13 | p | Assertions should be defined as Boolean tests. |
+| test.cpp:14:13:14:13 | n | Assertions should be defined as Boolean tests. |
+| test.cpp:21:13:21:17 | ... = ... | Assertions should be defined as Boolean tests. |
+| test.cpp:22:13:22:21 | ... & ... | Assertions should be defined as Boolean tests. |
+| test.cpp:23:31:23:31 | n | Assertions should be defined as Boolean tests. |
+| test.cpp:25:19:25:19 | p | Assertions should be defined as Boolean tests. |
+| test.cpp:27:13:27:13 | m | Assertions should be defined as Boolean tests. |
+| test.cpp:31:13:31:14 | rb | Assertions should be defined as Boolean tests. |
+| test.cpp:32:13:32:15 | crb | Assertions should be defined as Boolean tests. |
+| test.cpp:33:13:33:14 | st | Assertions should be defined as Boolean tests. |
+| test.cpp:35:14:35:14 | n | Assertions should be defined as Boolean tests. |
+| test.cpp:37:13:37:13 | 1 | Assertions should be defined as Boolean tests. |
+| test.cpp:40:10:40:10 | n | Assertions should be defined as Boolean tests. |
+| test.cpp:42:13:42:25 | ... ? ... : ... | Assertions should be defined as Boolean tests. |
+| test.cpp:43:13:43:25 | ... ? ... : ... | Assertions should be defined as Boolean tests. |
+| test.cpp:44:13:44:17 | - ... | Assertions should be defined as Boolean tests. |
+| test.cpp:45:13:45:20 | ... + ... | Assertions should be defined as Boolean tests. |
+| test.cpp:48:50:48:50 | v | Assertions should be defined as Boolean tests. |

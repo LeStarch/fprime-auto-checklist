@@ -1,0 +1,18 @@
+| test.cpp:11:13:11:18 | ... == ... | This assertion is always true. |
+| test.cpp:12:13:12:28 | ... == ... | This assertion is always true. |
+| test.cpp:15:13:15:17 | ! ... | This assertion is always false. |
+| test.cpp:17:13:17:22 | ... == ... | This assertion is always true. |
+| test.cpp:18:13:18:28 | ... != ... | This assertion is always true. |
+| test.cpp:19:3:19:25 | ... > ... | This assertion is always true. |
+| test.cpp:20:13:20:28 | ... >= ... | This assertion is always true. |
+| test.cpp:23:13:23:29 | ... == ... | This assertion is always true. |
+| test.cpp:24:13:24:23 | ... == ... | This assertion is always true. |
+| test.cpp:28:13:28:21 | ... && ... | This assertion is always true. |
+| test.cpp:32:10:32:14 | ... > ... | This assertion is always true. |
+| test.cpp:34:13:34:21 | literal | This assertion is always true. |
+| test.cpp:35:13:35:21 | ... > ... | This assertion is always true. |
+| test.cpp:36:13:36:21 | ... == ... | This assertion is always true. |
+| test.cpp:37:13:37:30 | ... == ... | This assertion is always true. |
+| test.cpp:39:52:39:56 | ... > ... | This assertion is always true. |
+| test.cpp:39:52:39:56 | ... > ... | This assertion is always true. |
+| test.cpp:42:33:42:44 | ... == ... | This assertion is always true. |

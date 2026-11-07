@@ -1,0 +1,8 @@
+| test.cpp:9:17:9:22 | call to printf | Call to printf; use F Prime events/logging instead. |
+| test.cpp:9:30:9:37 | call to printf | Call to printf; use F Prime events/logging instead. |
+| test.cpp:9:45:9:55 | call to printf | Call to printf; use F Prime events/logging instead. |
+| test.cpp:10:19:10:26 | call to printf | Call to printf; use F Prime events/logging instead. |
+| test.cpp:10:29:10:32 | call to puts | Call to puts; use F Prime events/logging instead. |
+| test.cpp:13:40:13:45 | call to printf | Call to printf; use F Prime events/logging instead. |
+| test.cpp:13:40:13:45 | call to printf | Call to printf; use F Prime events/logging instead. |
+| test.cpp:15:31:15:34 | call to puts | Call to puts; use F Prime events/logging instead. |

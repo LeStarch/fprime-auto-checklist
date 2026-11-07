@@ -28,6 +28,17 @@ bool isIsrFunction(const FunctionDecl *F) {
     if (llvm::StringRef(A->getSpelling()) == "interrupt")
       return true;
   }
+  // Sema drops the attribute on targets where it is ill-formed (x86 without a pointer
+  // parameter); CodeQL still records it, so fall back to the declaration's spelling.
+  const SourceManager &SM = F->getASTContext().getSourceManager();
+  SourceLocation End = F->hasBody() ? F->getBody()->getBeginLoc() : F->getEndLoc();
+  if (F->getBeginLoc().isValid() && End.isValid() && SM.isWrittenInSameFile(F->getBeginLoc(), End)) {
+    llvm::StringRef Text = Lexer::getSourceText(CharSourceRange::getCharRange(F->getBeginLoc(), End), SM,
+                                                F->getASTContext().getLangOpts());
+    static const std::regex Attr("__attribute__\\s*\\(\\(\\s*(__)?interrupt(__)?\\b|\\[\\[\\s*(gnu::)?interrupt\\b");
+    if (std::regex_search(Text.begin(), Text.end(), Attr))
+      return true;
+  }
   return false;
 }
 

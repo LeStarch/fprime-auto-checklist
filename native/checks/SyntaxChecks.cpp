@@ -36,11 +36,11 @@ class SwitchDefaultCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
-    F->addMatcher(switchStmt(unless(hasDescendant(defaultStmt()))).bind("sw"), this);
+    F->addMatcher(switchStmt().bind("sw"), this);
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *S = R.Nodes.getNodeAs<SwitchStmt>("sw");
-    // hasDescendant also finds defaults of nested switches; verify against the case list.
+    // Only this switch's own case list counts; nested switches have their own.
     for (const SwitchCase *C = S->getSwitchCaseList(); C; C = C->getNextSwitchCase())
       if (isa<DefaultStmt>(C))
         return;
@@ -94,8 +94,8 @@ private:
       return true;
     if (const auto *Block = dyn_cast<CompoundStmt>(S))
       return !Block->body_empty() && transfersControl(Block->body_back());
-    if (const auto *A = dyn_cast<AttributedStmt>(S))
-      return llvm::any_of(A->getAttrs(), [](const Attr *At) { return isa<FallThroughAttr>(At); });
+    if (const auto *L = dyn_cast<LabelStmt>(S))
+      return transfersControl(L->getSubStmt());
     return false;
   }
   static bool hasFallthroughComment(const Stmt *Last, const Stmt *Next, const SourceManager &SM,
@@ -112,9 +112,24 @@ private:
     SourceLocation To = SM.translateLineCol(FID, EndLine + 1, 1);
     if (From.isInvalid() || To.isInvalid())
       return false;
-    StringRef Text = Lexer::getSourceText(CharSourceRange::getCharRange(From, To), SM, LO);
+    // Only comments count (CodeQL's Comment class): re-lex the lines and test comment tokens,
+    // so `[[fallthrough]]` or an identifier containing "fallthrough" is not an annotation.
+    StringRef Buf = SM.getBufferData(FID);
+    Lexer Raw(SM.getLocForStartOfFile(FID), LO, Buf.begin(), Buf.data() + SM.getFileOffset(From), Buf.end());
+    Raw.SetCommentRetentionState(true);
     static const std::regex Marker("fall[ -]?thr(ough|u)", std::regex::icase);
-    return std::regex_search(Text.begin(), Text.end(), Marker);
+    unsigned Stop = SM.getFileOffset(To);
+    Token Tok;
+    while (!Raw.LexFromRawLexer(Tok)) {
+      if (SM.getFileOffset(Tok.getLocation()) >= Stop)
+        break;
+      if (!Tok.is(tok::comment))
+        continue;
+      StringRef Text = Lexer::getSourceText(CharSourceRange::getCharRange(Tok.getLocation(), Tok.getEndLoc()), SM, LO);
+      if (std::regex_search(Text.begin(), Text.end(), Marker))
+        return true;
+    }
+    return false;
   }
 };
 
@@ -145,14 +160,14 @@ class NoFunctionDeclInFunctionCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
-    F->addMatcher(declStmt(hasSingleDecl(functionDecl().bind("fn")), hasAncestor(functionDecl().bind("outer")))
-                      .bind("ds"),
-                  this);
+    F->addMatcher(declStmt(hasAncestor(functionDecl().bind("outer"))).bind("ds"), this);
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *DS = R.Nodes.getNodeAs<DeclStmt>("ds");
-    diag(DS->getBeginLoc(), "Function %0 is declared inside the body of function %1.")
-        << R.Nodes.getNodeAs<FunctionDecl>("fn")->getName() << R.Nodes.getNodeAs<FunctionDecl>("outer")->getName();
+    for (const Decl *D : DS->decls())
+      if (const auto *Fn = dyn_cast<FunctionDecl>(D))
+        diag(DS->getBeginLoc(), "Function %0 is declared inside the body of function %1.")
+            << Fn->getName() << R.Nodes.getNodeAs<FunctionDecl>("outer")->getName();
   }
 };
 
@@ -210,10 +225,10 @@ public:
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Eq = R.Nodes.getNodeAs<BinaryOperator>("eq");
-    const auto *L = dyn_cast<DeclRefExpr>(Eq->getLHS()->IgnoreParenImpCasts());
-    const auto *Rr = dyn_cast<DeclRefExpr>(Eq->getRHS()->IgnoreParenImpCasts());
-    if (L && Rr && L->getDecl() == Rr->getDecl())
-      return; // NaN check x != x
+    const ValueDecl *L = accessedDecl(Eq->getLHS()->IgnoreParenImpCasts());
+    const ValueDecl *Rr = accessedDecl(Eq->getRHS()->IgnoreParenImpCasts());
+    if (L && Rr && L == Rr)
+      return; // NaN check x != x (CodeQL: same VariableAccess target, fields included)
     diag(Eq->getOperatorLoc(), "Floating-point values are compared with %0; compare against a tolerance instead.")
         << Eq->getOpcodeStr();
   }
@@ -224,7 +239,9 @@ class FloatLoopControlCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
-    auto FloatVar = declRefExpr(to(varDecl(hasType(realFloatingPointType())))).bind("var");
+    auto FloatVar = expr(anyOf(declRefExpr(to(varDecl(hasType(realFloatingPointType())))),
+                               memberExpr(member(fieldDecl(hasType(realFloatingPointType()))))))
+                        .bind("var");
     F->addMatcher(forStmt(hasCondition(forEachDescendant(FloatVar))).bind("loop"), this);
     F->addMatcher(forStmt(hasCondition(FloatVar)).bind("loop"), this);
     F->addMatcher(whileStmt(hasCondition(anyOf(FloatVar, forEachDescendant(FloatVar)))).bind("loop"), this);
@@ -232,12 +249,11 @@ public:
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Loop = R.Nodes.getNodeAs<Stmt>("loop");
-    const auto *Var = R.Nodes.getNodeAs<DeclRefExpr>("var");
-    auto Key = std::make_pair(Loop, Var->getDecl());
+    const ValueDecl *Var = accessedDecl(R.Nodes.getNodeAs<Expr>("var"));
+    auto Key = std::make_pair(Loop, static_cast<const Decl *>(Var));
     if (!Seen.insert(Key).second)
       return;
-    diag(Loop->getBeginLoc(), "This loop's condition depends on the floating-point variable %0.")
-        << Var->getDecl()->getName();
+    diag(Loop->getBeginLoc(), "This loop's condition depends on the floating-point variable %0.") << Var->getName();
   }
 
 private:
@@ -249,7 +265,7 @@ class GlobalMutableVariableCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
-    F->addMatcher(varDecl(unless(parmVarDecl()), hasGlobalStorage(), unless(isConstexpr()), isDefinition(),
+    F->addMatcher(varDecl(unless(parmVarDecl()), hasGlobalStorage(), unless(isConstexpr()),
                           unless(hasType(isConstQualified())))
                       .bind("var"),
                   this);
@@ -258,6 +274,12 @@ public:
     const auto *V = R.Nodes.getNodeAs<VarDecl>("var");
     if (V->isStaticDataMember() || V->isImplicit())
       return;
+    if (const VarDecl *Def = V->getDefinition()) {
+      if (Def != V)
+        return;
+    } else if (V != V->getCanonicalDecl()) {
+      return;
+    }
     if (inTestPath(R.SourceManager->getFilename(R.SourceManager->getExpansionLoc(V->getLocation()))))
       return;
     if (isDeeplyConst(V->getType()))
@@ -289,12 +311,20 @@ public:
                                 hasAncestor(functionDecl().bind("fn")))
                       .bind("op"),
                   this);
+    F->addMatcher(conditionalOperator(anyOf(hasType(realFloatingPointType()), hasTrueExpression(Float),
+                                            hasFalseExpression(Float)),
+                                      hasAncestor(functionDecl().bind("fn")))
+                      .bind("op"),
+                  this);
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
     if (!isIsrFunction(Fn))
       return;
     const auto *Op = R.Nodes.getNodeAs<Expr>("op");
+    if (const auto *BO = dyn_cast<BinaryOperator>(Op))
+      if (BO->getOpcode() == BO_Comma)
+        return; // CodeQL's CommaExpr is not an Operation
     diag(Op->getExprLoc(), "Floating-point operation in interrupt service routine %0.") << Fn->getName();
   }
 };
@@ -310,7 +340,11 @@ public:
       return;
     bool HasLoop = false;
     unsigned Count = 0;
-    countStmts(Fn->getBody(), HasLoop, Count);
+    visit(Fn->getBody(), HasLoop, Count);
+    // CodeQL synthesises a ReturnStmt when control can fall off the end of the body.
+    if (const auto *Body = dyn_cast<CompoundStmt>(Fn->getBody()))
+      if (Body->body_empty() || !isa<ReturnStmt>(Body->body_back()))
+        ++Count;
     if (HasLoop)
       diag(Fn->getLocation(), "Interrupt service routine %0 contains a loop; keep ISRs minimal.") << Fn->getName();
     else if (Count > 20)
@@ -319,44 +353,98 @@ public:
   }
 
 private:
-  // CodeQL counts Stmt nodes (ExprStmt included) other than blocks; clang has no ExprStmt,
-  // so count every statement-position child instead.
-  static void countStmts(const Stmt *S, bool &HasLoop, unsigned &Count) {
+  // Mirrors CodeQL's count(Stmt s | s.getEnclosingFunction() = isr and not s instanceof BlockStmt):
+  // every statement-position node counts once (clang has no ExprStmt node, so an Expr in
+  // statement position counts as one), blocks do not, expressions are not descended into
+  // (lambdas and local classes belong to other functions), and a switch carries one extra
+  // synthetic statement in CodeQL's model.
+  static void visit(const Stmt *S, bool &HasLoop, unsigned &Count) {
     if (!S)
       return;
-    for (const Stmt *C : S->children()) {
-      if (!C)
-        continue;
-      bool StmtPosition = isa<CompoundStmt>(S) || !isa<Expr>(C);
-      if (!StmtPosition)
-        continue;
-      if (isa<ForStmt>(C) || isa<WhileStmt>(C) || isa<DoStmt>(C) || isa<CXXForRangeStmt>(C))
-        HasLoop = true;
-      if (!isa<CompoundStmt>(C))
-        ++Count;
-      if (!isa<Expr>(C))
-        countStmts(C, HasLoop, Count);
+    if (const auto *Block = dyn_cast<CompoundStmt>(S)) {
+      for (const Stmt *C : Block->body())
+        visit(C, HasLoop, Count);
+      return;
+    }
+    ++Count;
+    if (const auto *If = dyn_cast<IfStmt>(S)) {
+      visit(If->getThen(), HasLoop, Count);
+      visit(If->getElse(), HasLoop, Count);
+    } else if (const auto *Sw = dyn_cast<SwitchStmt>(S)) {
+      ++Count;
+      visit(Sw->getBody(), HasLoop, Count);
+    } else if (const auto *For = dyn_cast<ForStmt>(S)) {
+      HasLoop = true;
+      visit(For->getInit(), HasLoop, Count);
+      visit(For->getBody(), HasLoop, Count);
+    } else if (const auto *W = dyn_cast<WhileStmt>(S)) {
+      HasLoop = true;
+      visit(W->getBody(), HasLoop, Count);
+    } else if (const auto *D = dyn_cast<DoStmt>(S)) {
+      HasLoop = true;
+      visit(D->getBody(), HasLoop, Count);
+    } else if (const auto *R = dyn_cast<CXXForRangeStmt>(S)) {
+      HasLoop = true;
+      visit(R->getBody(), HasLoop, Count);
+    } else if (const auto *Case = dyn_cast<SwitchCase>(S)) {
+      visit(Case->getSubStmt(), HasLoop, Count);
+    } else if (const auto *L = dyn_cast<LabelStmt>(S)) {
+      visit(L->getSubStmt(), HasLoop, Count);
+    } else if (const auto *A = dyn_cast<AttributedStmt>(S)) {
+      visit(A->getSubStmt(), HasLoop, Count);
     }
   }
 };
 
 // cpp/fprime/incomplete-code -- comment markers via the preprocessor's comment handler.
 class IncompleteCodeCheck : public ClangTidyCheck, public CommentHandler {
+  class SkippedRanges : public PPCallbacks {
+  public:
+    SkippedRanges(IncompleteCodeCheck &C, Preprocessor &PP) : Check(C), PP(PP) {}
+    // The comment handler never sees #if 0 ... #endif; re-lex those ranges for comments.
+    void SourceRangeSkipped(SourceRange Range, SourceLocation) override {
+      const SourceManager &SM = PP.getSourceManager();
+      if (!fromSource(Range.getBegin(), SM))
+        return;
+      std::pair<FileID, unsigned> B = SM.getDecomposedLoc(Range.getBegin());
+      std::pair<FileID, unsigned> E = SM.getDecomposedLoc(Range.getEnd());
+      if (B.first != E.first)
+        return;
+      StringRef Buf = SM.getBufferData(B.first);
+      Lexer Raw(SM.getLocForStartOfFile(B.first), PP.getLangOpts(), Buf.begin(), Buf.data() + B.second, Buf.end());
+      Raw.SetCommentRetentionState(true);
+      Token Tok;
+      while (!Raw.LexFromRawLexer(Tok)) {
+        if (SM.getDecomposedLoc(Tok.getLocation()).second >= E.second)
+          break;
+        if (Tok.is(tok::comment))
+          Check.report(SourceRange(Tok.getLocation(), Tok.getEndLoc()), SM, PP.getLangOpts());
+      }
+    }
+
+  private:
+    IncompleteCodeCheck &Check;
+    Preprocessor &PP;
+  };
+
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerPPCallbacks(const SourceManager &, Preprocessor *PP, Preprocessor *) override {
     PP->addCommentHandler(this);
+    PP->addPPCallbacks(std::make_unique<SkippedRanges>(*this, *PP));
   }
   bool HandleComment(Preprocessor &PP, SourceRange Range) override {
-    const SourceManager &SM = PP.getSourceManager();
+    report(Range, PP.getSourceManager(), PP.getLangOpts());
+    return false;
+  }
+  void report(SourceRange Range, const SourceManager &SM, const LangOptions &LO) {
     if (!fromSource(Range.getBegin(), SM))
-      return false;
-    StringRef Text = Lexer::getSourceText(CharSourceRange::getCharRange(Range), SM, PP.getLangOpts());
+      return;
+    StringRef Text = Lexer::getSourceText(CharSourceRange::getCharRange(Range), SM, LO);
     static const std::regex Marker("\\b(TBD|TODO|FIXME)\\b");
     std::cmatch M;
     if (std::regex_search(Text.begin(), Text.end(), M, Marker))
       diag(Range.getBegin(), "Comment contains the incomplete-code marker %0.") << std::string(M[1]);
-    return false;
   }
 };
 
@@ -367,7 +455,7 @@ class DefineConstantCheck : public ClangTidyCheck {
     Callbacks(DefineConstantCheck &C, const SourceManager &SM, const LangOptions &LO) : Check(C), SM(SM), LO(LO) {}
     void MacroDefined(const Token &Name, const MacroDirective *MD) override {
       const MacroInfo *MI = MD->getMacroInfo();
-      if (!MI || MI->isFunctionLike() || MI->isBuiltinMacro() || !fromSource(MI->getDefinitionLoc(), SM))
+      if (!MI || MI->isBuiltinMacro() || !fromSource(MI->getDefinitionLoc(), SM))
         return;
       StringRef Path = SM.getFilename(MI->getDefinitionLoc());
       if (Path.empty() || Path.startswith("<")) // -D on the command line, <built-in>
@@ -376,11 +464,12 @@ class DefineConstantCheck : public ClangTidyCheck {
         return;
       std::string Body;
       for (const Token &T : MI->tokens()) {
+        if (T.hasLeadingSpace() && !Body.empty())
+          Body += ' ';
         Body += Lexer::getSpelling(T, SM, LO);
-        Body += ' ';
       }
       static const std::regex Numeric(
-          "^\\(?\\s*[-+]?\\s*(0[xX][0-9a-fA-F]+|[0-9]+(\\.[0-9]*)?([eE][-+]?[0-9]+)?)[uUlLfF]*\\s*\\)?\\s*$");
+          "^\\(?\\s*[-+]?(0[xX][0-9a-fA-F]+|[0-9]+(\\.[0-9]*)?([eE][-+]?[0-9]+)?)[uUlLfF]*\\s*\\)?$");
       if (std::regex_match(Body, Numeric))
         Check.diag(MI->getDefinitionLoc(), "Numeric constant %0 is defined with #define; use a typed constant.")
             << Name.getIdentifierInfo()->getName();

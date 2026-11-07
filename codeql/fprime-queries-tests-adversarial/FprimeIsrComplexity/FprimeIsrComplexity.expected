@@ -1,0 +1,8 @@
+| test.cpp:2:6:2:13 | loop_isr | Interrupt service routine loop_isr contains a loop; keep ISRs minimal. |
+| test.cpp:3:6:3:17 | rangefor_isr | Interrupt service routine rangefor_isr contains a loop; keep ISRs minimal. |
+| test.cpp:4:6:4:16 | dowhile_isr | Interrupt service routine dowhile_isr contains a loop; keep ISRs minimal. |
+| test.cpp:9:6:9:15 | twenty_isr | Interrupt service routine twenty_isr has 21 statements; keep ISRs minimal. |
+| test.cpp:15:6:15:18 | twentyone_isr | Interrupt service routine twentyone_isr has 22 statements; keep ISRs minimal. |
+| test.cpp:22:6:22:15 | ifelse_isr | Interrupt service routine ifelse_isr has 21 statements; keep ISRs minimal. |
+| test.cpp:27:6:27:15 | switch_isr | Interrupt service routine switch_isr has 25 statements; keep ISRs minimal. |
+| test.cpp:35:6:35:13 | decl_isr | Interrupt service routine decl_isr has 43 statements; keep ISRs minimal. |

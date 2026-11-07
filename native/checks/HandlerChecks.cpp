@@ -12,7 +12,7 @@ namespace fprime {
 
 namespace {
 
-bool isMemberCall(const CallExpr *C) { return isa<CXXMemberCallExpr>(C) || isa<CXXOperatorCallExpr>(C); }
+bool isMemberCall(const CallExpr *C) { return isa_and_nonnull<CXXMethodDecl>(C->getDirectCallee()); }
 
 StringRef calleeName(const CallExpr *C) {
   const FunctionDecl *F = C->getDirectCallee();
@@ -97,11 +97,8 @@ class ValidationFailureReturnCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
-    F->addMatcher(ifStmt(unless(hasElse(stmt())),
-                         hasThen(stmt(hasDescendant(callExpr(callee(functionDecl(hasName("cmdResponse_out"))))
-                                                        .bind("report")))
-                                     .bind("then")),
-                         hasAncestor(functionDecl().bind("handler")), hasParent(compoundStmt().bind("block")))
+    F->addMatcher(ifStmt(unless(hasElse(stmt())), hasThen(stmt().bind("then")),
+                         hasAncestor(functionDecl().bind("handler")))
                       .bind("if"),
                   this);
   }
@@ -109,16 +106,12 @@ public:
     const auto *Handler = R.Nodes.getNodeAs<FunctionDecl>("handler");
     if (!isFprimeHandler(Handler->getName()))
       return;
-    const auto *Report = R.Nodes.getNodeAs<CallExpr>("report");
-    if (Report->getNumArgs() < 3 || !isFailureResponse(Report->getArg(2)))
-      return;
     const auto *Then = R.Nodes.getNodeAs<Stmt>("then");
-    if (transfersControl(Then))
+    if (!hasFailureReport(Then) || transfersControl(Then))
       return;
     const auto *If = R.Nodes.getNodeAs<IfStmt>("if");
-    const auto *Block = R.Nodes.getNodeAs<CompoundStmt>("block");
-    if (Block->body_back() == If)
-      return; // no following statement
+    if (!hasFollowingStmt(If, *R.Context, Handler))
+      return;
     if (!Seen.insert(If).second)
       return;
     diag(If->getBeginLoc(), "This validation-failure branch in handler %0 sends a failed command response but does not return.")
@@ -127,6 +120,42 @@ public:
 
 private:
   std::set<const Stmt *> Seen;
+  // cmdResponse_out(_, _, <non-OK>) somewhere in S, not inside a lambda (another function).
+  static bool hasFailureReport(const Stmt *S) {
+    if (!S || isa<LambdaExpr>(S))
+      return false;
+    if (const auto *C = dyn_cast<CallExpr>(S))
+      if (const FunctionDecl *F = C->getDirectCallee();
+          F && F->getName() == "cmdResponse_out" && C->getNumArgs() >= 3 && isFailureResponse(C->getArg(2)))
+        return true;
+    for (const Stmt *Child : S->children())
+      if (hasFailureReport(Child))
+        return true;
+    return false;
+  }
+  // CodeQL's Stmt.getFollowingStmt(): the next statement of the enclosing block, looking through
+  // case/default labels; the last statement of a function body is followed by the synthesised return.
+  static bool hasFollowingStmt(const Stmt *S, ASTContext &Ctx, const FunctionDecl *Fn) {
+    const Stmt *Cur = S;
+    while (true) {
+      const auto &Parents = Ctx.getParents(*Cur);
+      if (Parents.empty())
+        return false;
+      const Stmt *P = Parents[0].get<Stmt>();
+      if (!P)
+        return false;
+      if (isa<SwitchCase>(P) || isa<LabelStmt>(P) || isa<AttributedStmt>(P)) {
+        Cur = P;
+        continue;
+      }
+      const auto *Block = dyn_cast<CompoundStmt>(P);
+      if (!Block)
+        return false;
+      if (Block->body_back() != Cur)
+        return true;
+      return Block == Fn->getBody();
+    }
+  }
   static void enumConstants(const Stmt *S, bool &NonOk, bool &Ok) {
     if (!S)
       return;
@@ -211,7 +240,7 @@ public:
 private:
   static void collect(const Stmt *S, llvm::SmallVectorImpl<const CallExpr *> &FA,
                       llvm::SmallVectorImpl<const CallExpr *> &Locks) {
-    if (!S)
+    if (!S || isa<LambdaExpr>(S))
       return;
     if (const auto *C = dyn_cast<CallExpr>(S)) {
       if (isFileAccessCall(C))
