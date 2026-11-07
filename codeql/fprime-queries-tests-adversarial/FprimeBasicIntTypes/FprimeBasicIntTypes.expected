@@ -1,0 +1,34 @@
+| test.cpp:26:16:26:20 | m_bad | m_bad uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:26:38:26:40 | m_c | m_c uses the basic integral type char rather than a typedef with size and signedness. |
+| test.cpp:27:5:27:9 | g_bad | g_bad uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:29:18:29:23 | g_cbad | g_cbad uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:31:23:31:30 | plainArg | plainArg uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:33:7:33:7 | r | r uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:34:8:34:10 | out | out uses the basic integral type long rather than a typedef with size and signedness. |
+| test.cpp:36:7:36:9 | len | len uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:37:7:37:11 | local | local uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:38:7:38:9 | cmp | cmp uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:40:7:40:12 | viaVar | viaVar uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:41:7:41:15 | fromParam | fromParam uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:42:10:42:11 | sz | sz uses the basic integral type unsigned long rather than a typedef with size and signedness. |
+| test.cpp:43:7:43:13 | forLoop | forLoop uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:44:12:44:12 | i | i uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:45:7:45:13 | noIlist | noIlist uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:46:8:46:8 | a | a uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:47:8:47:8 | b | b uses the basic integral type unsigned int rather than a typedef with size and signedness. |
+| test.cpp:48:7:48:8 | sl | sl uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:51:5:51:15 | passthrough | passthrough uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:51:21:51:21 | x | x uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:52:5:52:11 | wrapper | wrapper uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:52:17:52:17 | x | x uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:53:27:53:27 | v | v uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:53:50:53:50 | w | w uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:54:41:54:45 | inner | inner uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:57:17:57:17 | operator() | operator() uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:57:22:57:22 | p | p uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:57:31:57:31 | q | q uses the basic integral type int rather than a typedef with size and signedness. |
+| test.cpp:59:6:59:24 | with_comparison_ext | with_comparison_ext uses the basic integral type long rather than a typedef with size and signedness. |
+| test.cpp:59:31:59:31 | v | v uses the basic integral type long rather than a typedef with size and signedness. |
+| test.cpp:60:14:60:20 | spelled | spelled uses the basic integral type unsigned int rather than a typedef with size and signedness. |
+| test.cpp:60:35:60:35 | x | x uses the basic integral type unsigned int rather than a typedef with size and signedness. |
+| test.cpp:61:5:61:8 | main | main uses the basic integral type int rather than a typedef with size and signedness. |

@@ -145,7 +145,7 @@ public:
     statementChildren(Parent, Children);
     std::map<std::pair<FileID, unsigned>, llvm::SmallVector<const Stmt *, 4>> ByLine;
     for (const Stmt *C : Children) {
-      if (isa<CompoundStmt>(C) || isa<SwitchCase>(C) || isa<NullStmt>(C))
+      if (isa<CompoundStmt>(C) || isa<SwitchCase>(C))
         continue;
       SourceLocation B = SM.getExpansionLoc(C->getBeginLoc()), E = SM.getExpansionLoc(C->getEndLoc());
       if (B.isInvalid() || E.isInvalid() || !SM.isWrittenInSameFile(B, E))
@@ -155,19 +155,38 @@ public:
       ByLine[{SM.getFileID(B), SM.getExpansionLineNumber(B)}].push_back(C);
     }
     for (auto &[Key, Stmts] : ByLine) {
-      if (Stmts.size() < 2)
+      // CodeQL counts distinct start columns: statements produced by one macro expansion share
+      // the expansion's column and count once.
+      std::set<unsigned> Columns;
+      for (const Stmt *S : Stmts)
+        Columns.insert(SM.getExpansionColumnNumber(S->getBeginLoc()));
+      if (Columns.size() < 2)
         continue;
       const Stmt *First = *std::min_element(Stmts.begin(), Stmts.end(), [&](const Stmt *A, const Stmt *B) {
         return SM.getExpansionColumnNumber(A->getBeginLoc()) < SM.getExpansionColumnNumber(B->getBeginLoc());
       });
-      diag(First->getBeginLoc(), "This line contains %0 statements; only one is allowed.") << (unsigned)Stmts.size();
+      diag(First->getBeginLoc(), "This line contains %0 statements; only one is allowed.") << (unsigned)Columns.size();
     }
   }
 
 private:
+  // CodeQL's AST flattens labels: `case 1:` / `lbl:` and the statement they prefix are siblings
+  // in the enclosing block (the label itself counts as a statement, a SwitchCase does not).
+  static void flatten(const Stmt *S, llvm::SmallVectorImpl<const Stmt *> &Out) {
+    Out.push_back(S);
+    if (const auto *SC = dyn_cast<SwitchCase>(S)) {
+      if (SC->getSubStmt())
+        flatten(SC->getSubStmt(), Out);
+    } else if (const auto *L = dyn_cast<LabelStmt>(S)) {
+      flatten(L->getSubStmt(), Out);
+    }
+  }
   static void statementChildren(const Stmt *P, llvm::SmallVectorImpl<const Stmt *> &Out) {
     if (const auto *CS = dyn_cast<CompoundStmt>(P)) {
-      Out.append(CS->body_begin(), CS->body_end());
+      for (const Stmt *C : CS->body())
+        flatten(C, Out);
+    } else if (isa<SwitchCase>(P) || isa<LabelStmt>(P)) {
+      return; // handled by the enclosing block
     } else if (const auto *If = dyn_cast<IfStmt>(P)) {
       Out.push_back(If->getThen());
       if (If->getElse())
@@ -180,11 +199,6 @@ private:
       Out.push_back(D->getBody());
     } else if (const auto *S = dyn_cast<SwitchStmt>(P)) {
       Out.push_back(S->getBody());
-    } else if (const auto *C = dyn_cast<SwitchCase>(P)) {
-      if (C->getSubStmt())
-        Out.push_back(C->getSubStmt());
-    } else if (const auto *L = dyn_cast<LabelStmt>(P)) {
-      Out.push_back(L->getSubStmt());
     } else if (const auto *RF = dyn_cast<CXXForRangeStmt>(P)) {
       Out.push_back(RF->getBody());
     }

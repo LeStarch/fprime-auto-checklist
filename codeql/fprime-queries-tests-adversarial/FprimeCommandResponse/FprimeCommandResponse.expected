@@ -1,0 +1,12 @@
+| test.cpp:16:8:16:19 | B_cmdHandler | Command handler B_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:17:8:17:19 | C_cmdHandler | Command handler C_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:22:8:22:19 | H_cmdHandler | Command handler H_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:24:8:24:19 | J_cmdHandler | Command handler J_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:25:8:25:19 | K_cmdHandler | Command handler K_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:28:8:28:19 | N_cmdHandler | Command handler N_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:30:8:30:19 | P_cmdHandler | Command handler P_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:32:8:32:19 | R_cmdHandler | Command handler R_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:33:8:33:19 | S_cmdHandler | Command handler S_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:34:8:34:19 | T_cmdHandler | Command handler T_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:44:8:44:20 | AC_cmdHandler | Command handler AC_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
+| test.cpp:45:8:45:20 | AD_cmdHandler | Command handler AD_cmdHandler has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into member variables read by a deferred cmdResponse_out call. |
