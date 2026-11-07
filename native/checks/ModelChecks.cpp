@@ -96,6 +96,9 @@ private:
       return false;
     llvm::SmallVector<const MemberExpr *, 8> Accesses;
     collect<MemberExpr>(F->getBody(), Accesses);
+    if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(F))
+      for (const CXXCtorInitializer *Init : Ctor->inits())
+        collect<MemberExpr>(Init->getInit(), Accesses);
     ASTContext &Ctx = F->getASTContext();
     for (const MemberExpr *ME : Accesses) {
       if (ME->getMemberDecl() != M)
@@ -130,6 +133,12 @@ private:
       } else if (const auto *U = dyn_cast<UnaryOperator>(P)) {
         if (First && (U->isIncrementDecrementOp() || U->getOpcode() == UO_AddrOf))
           return true;
+      } else if (const auto *CE = dyn_cast<CXXConstructExpr>(P)) {
+        if (ME->getType()->isArrayType())
+          for (const Expr *Arg : CE->arguments())
+            if (Arg->IgnoreParenImpCasts() == ME)
+              return true;
+        return false;
       } else if (const auto *C = dyn_cast<CallExpr>(P)) {
         if (ME->getType()->isArrayType())
           for (const Expr *Arg : C->arguments())
@@ -170,7 +179,7 @@ public:
     std::string Name = Logger->getNameAsString();
     if (!std::regex_match(Name, EventName) || StringRef(Name).endswith("_ThrottleClear"))
       return;
-    if (isThrottled(Logger) || gatedOnState(Call, Handler, *R.Context))
+    if (isThrottled(Logger) || hasThrottleField(Logger) || gatedOnState(Call, Handler, *R.Context))
       return;
     diag(Call->getExprLoc(), "Event %0 is emitted from cyclic handler %1 without throttling or a change-of-state gate.")
         << Name << Handler->getName();
@@ -193,6 +202,19 @@ private:
     llvm::SmallVector<const MemberExpr *, 8> Accesses;
     collect<MemberExpr>(Def->getBody(), Accesses);
     return llvm::any_of(Accesses, [](const MemberExpr *ME) { return ME->getMemberDecl()->getName().endswith("Throttle"); });
+  }
+  // The FPP `throttle` keyword autocodes an `m_<Event>Throttle` counter into the component base.
+  static bool hasThrottleField(const CXXMethodDecl *Logger) {
+    static const std::regex Prefix("^log_(DIAGNOSTIC|ACTIVITY_(LO|HI)|WARNING_(LO|HI)|COMMAND|FATAL)_");
+    std::string Event = std::regex_replace(Logger->getNameAsString(), Prefix, "");
+    const CXXRecordDecl *RD = Logger->getParent();
+    while (RD && RD->hasDefinition()) {
+      for (const FieldDecl *FD : RD->fields())
+        if (FD->getName().endswith("Throttle") && FD->getName().contains(Event))
+          return true;
+      RD = RD->getNumBases() == 1 ? RD->bases_begin()->getType()->getAsCXXRecordDecl() : nullptr;
+    }
+    return false;
   }
   static bool gatedOnState(const Stmt *Call, const FunctionDecl *Handler, ASTContext &Ctx) {
     DynTypedNode Cur = DynTypedNode::create(*Call);
@@ -243,7 +265,7 @@ public:
       collectVars(Fn->getBody(), Vars);
       for (const VarDecl *V : Vars)
         if (!Tainted.count(V) && V->getInit())
-          if (auto What = sourceOf(V->getInit(), Tainted)) {
+          if (auto What = valueSource(V->getInit(), Tainted)) {
             Tainted[V] = *What;
             Changed = true;
           }
@@ -255,7 +277,7 @@ public:
         const auto *V = dyn_cast_or_null<VarDecl>(accessedDecl(B->getLHS()->IgnoreParenImpCasts()));
         if (!V || Tainted.count(V) || !V->isLocalVarDeclOrParm())
           continue;
-        if (auto What = sourceOf(B->getRHS(), Tainted)) {
+        if (auto What = valueSource(B->getRHS(), Tainted)) {
           Tainted[V] = *What;
           Changed = true;
         }
@@ -292,6 +314,19 @@ private:
     for (const Stmt *C : S->children())
       collectVars(C, Out);
   }
+  // The expression itself (through parentheses and casts) is a tainted access or a paramGet_* call.
+  static llvm::Optional<std::string> valueSource(const Expr *E, const std::map<const ValueDecl *, std::string> &Tainted) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *Cast = dyn_cast<ExplicitCastExpr>(E))
+      return valueSource(Cast->getSubExpr(), Tainted);
+    if (const ValueDecl *V = accessedDecl(E))
+      if (auto It = Tainted.find(V); It != Tainted.end())
+        return It->second;
+    if (const auto *C = dyn_cast<CallExpr>(E))
+      if (const FunctionDecl *F = C->getDirectCallee(); F && F->getDeclName().isIdentifier() && F->getName().startswith("paramGet_"))
+        return std::string("parameter value from ") + F->getNameAsString();
+    return llvm::None;
+  }
   static llvm::Optional<std::string> sourceOf(const Expr *E, const std::map<const ValueDecl *, std::string> &Tainted) {
     llvm::SmallVector<const Expr *, 16> Exprs;
     collect<Expr>(E, Exprs);
@@ -309,17 +344,35 @@ private:
 
 // cpp/fprime/command-response
 class CommandResponseCheck : public ClangTidyCheck {
+  struct ClassModel;
+
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
-    F->addMatcher(cxxMethodDecl(isDefinition(), hasBody(stmt())).bind("handler"), this);
+    F->addMatcher(functionDecl(isDefinition(), hasBody(stmt())).bind("fn"), this);
   }
+  // Collect every function definition; handlers are judged once the whole TU is known, since
+  // response forwarders and deferred-response readers may live in other classes.
   void check(const MatchFinder::MatchResult &R) override {
-    const auto *H = R.Nodes.getNodeAs<CXXMethodDecl>("handler");
-    if (!isCmdHandler(H))
+    Ctx = R.Context;
+    Defs.push_back(R.Nodes.getNodeAs<FunctionDecl>("fn"));
+  }
+  void onEndOfTranslationUnit() override {
+    if (!Ctx)
       return;
-    const CXXRecordDecl *Class = H->getParent();
-    ClassModel Model = buildModel(Class);
+    ClassModel Model = buildModel(Defs);
+    for (const FunctionDecl *F : Defs)
+      if (const auto *H = dyn_cast<CXXMethodDecl>(F); H && isCmdHandler(H))
+        judge(H, Model, *Ctx);
+    Defs.clear();
+    Ctx = nullptr;
+  }
+
+private:
+  llvm::SmallVector<const FunctionDecl *, 64> Defs;
+  ASTContext *Ctx = nullptr;
+
+  void judge(const CXXMethodDecl *H, const ClassModel &Model, ASTContext &Context) {
     const ParmVarDecl *OpParam = H->getParamDecl(0), *SeqParam = H->getParamDecl(1);
     // Fields that hold the deferred (opCode, cmdSeq) pair for this handler.
     std::set<const FieldDecl *> DeferredOp, DeferredSeq;
@@ -348,14 +401,13 @@ public:
           return true;
       return false;
     };
-    if (pathWithoutAction(H, *R.Context, [&](const Stmt *S) { return IsAction(S, true); }) ||
-        pathWithoutAction(H, *R.Context, [&](const Stmt *S) { return IsAction(S, false); }))
+    if (pathWithoutAction(H, Context, [&](const Stmt *S) { return IsAction(S, true); }) ||
+        pathWithoutAction(H, Context, [&](const Stmt *S) { return IsAction(S, false); }))
       diag(H->getLocation(), "Command handler %0 has a path that neither calls cmdResponse_out nor saves opCode and cmdSeq into "
                              "member variables read by a deferred cmdResponse_out call.")
           << H->getName();
   }
 
-private:
   struct ClassModel {
     // Functions forwarding (opCode, cmdSeq) parameters to cmdResponse_out: param indices.
     std::map<const FunctionDecl *, std::set<std::pair<unsigned, unsigned>>> Forwarders;
@@ -391,6 +443,18 @@ private:
     return false;
   }
 
+  // The field that statement S stores parameter P into (directly or through a storer call), else null.
+  static const FieldDecl *storedField(const Stmt *S, const ParmVarDecl *P, const ClassModel &M) {
+    if (const auto *B = dyn_cast<BinaryOperator>(S); B && B->getOpcode() == BO_Assign)
+      return paramOf(B->getRHS()) == P ? fieldOf(B->getLHS()) : nullptr;
+    if (const auto *C = dyn_cast<CallExpr>(S))
+      if (const FunctionDecl *Callee = C->getDirectCallee())
+        if (auto It = M.Storers.find(Callee->getCanonicalDecl()); It != M.Storers.end())
+          for (auto [Idx, Field] : It->second)
+            if (Idx < C->getNumArgs() && paramOf(C->getArg(Idx)) == P)
+              return Field;
+    return nullptr;
+  }
   static bool storesParamToField(const Stmt *S, const ParmVarDecl *P, const FieldDecl *F, const ClassModel &M) {
     if (const auto *B = dyn_cast<BinaryOperator>(S); B && B->getOpcode() == BO_Assign)
       return fieldOf(B->getLHS()) == F && paramOf(B->getRHS()) == P;
@@ -403,14 +467,8 @@ private:
     return false;
   }
 
-  static ClassModel buildModel(const CXXRecordDecl *Class) {
+  static ClassModel buildModel(llvm::ArrayRef<const FunctionDecl *> Defs) {
     ClassModel M;
-    llvm::SmallVector<const FunctionDecl *, 32> Defs;
-    for (const CXXMethodDecl *Method : Class->methods()) {
-      const FunctionDecl *Def = nullptr;
-      if (Method->hasBody(Def) && Def)
-        Defs.push_back(Def);
-    }
     bool Changed = true;
     while (Changed) {
       Changed = false;
@@ -427,9 +485,8 @@ private:
         collect<Stmt>(G->getBody(), Nodes);
         for (const Stmt *N : Nodes)
           for (const ParmVarDecl *P : G->parameters())
-            for (const FieldDecl *F : Class->fields())
-              if (storesParamToField(N, P, F, M))
-                Changed |= M.Storers[G->getCanonicalDecl()].insert({P->getFunctionScopeIndex(), F}).second;
+            if (const FieldDecl *F = storedField(N, P, M))
+              Changed |= M.Storers[G->getCanonicalDecl()].insert({P->getFunctionScopeIndex(), F}).second;
       }
     }
     for (const FunctionDecl *G : Defs) {

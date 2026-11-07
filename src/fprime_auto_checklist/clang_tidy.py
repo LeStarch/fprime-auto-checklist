@@ -217,6 +217,7 @@ def run(
         cmd = [
             clang_tidy,
             f"--load={plugin}",
+            "--config={}",  # ignore the project's .clang-tidy (e.g. WarningsAsErrors, other checks)
             f"--checks={checks}",
             f"--header-filter={header_filter}",
             "-p",

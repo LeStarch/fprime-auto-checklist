@@ -4,6 +4,8 @@
 #include "clang/AST/ParentMapContext.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 
+#include <regex>
+
 using namespace clang::ast_matchers;
 
 namespace clang {
@@ -122,6 +124,8 @@ bool exprIsSideEffecting(const Stmt *S) {
 
 } // namespace
 
+bool UseOfAssertionsConstantCheck_readsThroughObject(const Stmt *S);
+
 // cpp/fprime/jpl-c/use-of-assertions-constant
 class UseOfAssertionsConstantCheck : public ClangTidyCheck {
 public:
@@ -131,6 +135,8 @@ public:
     const Expr *Asserted = assertedCondition(R.Nodes.getNodeAs<ConditionalOperator>("assert"));
     if (!Asserted || Asserted->isValueDependent())
       return;
+    if (readsThroughObject(Asserted))
+      return; // CodeQL does not fold `obj.ENUMERATOR`; neither do we
     Expr::EvalResult Result;
     if (!Asserted->EvaluateAsRValue(Result, *R.Context) || !Result.Val.isInt())
       return;
@@ -140,7 +146,21 @@ public:
       return; // FW_ASSERT(false) / FW_ASSERT(0): unreachable-code idiom
     diag(Asserted->getBeginLoc(), IsZero ? "This assertion is always false." : "This assertion is always true.");
   }
+
+private:
+  static bool readsThroughObject(const Stmt *S) { return UseOfAssertionsConstantCheck_readsThroughObject(S); }
 };
+
+bool UseOfAssertionsConstantCheck_readsThroughObject(const Stmt *S) {
+  if (const auto *ME = dyn_cast<MemberExpr>(S))
+    if (!isa<CXXThisExpr>(ME->getBase()->IgnoreParenImpCasts()) &&
+        (isa<EnumConstantDecl>(ME->getMemberDecl()) || isa<VarDecl>(ME->getMemberDecl())))
+      return true;
+  for (const Stmt *C : S->children())
+    if (C && UseOfAssertionsConstantCheck_readsThroughObject(C))
+      return true;
+  return false;
+}
 
 // cpp/fprime/jpl-c/use-of-assertions-non-boolean
 class UseOfAssertionsNonBooleanCheck : public ClangTidyCheck {
@@ -192,8 +212,8 @@ public:
     StringRef Text = Lexer::getSourceText(CharSourceRange::getTokenRange(Range), SM, R.Context->getLangOpts());
     if (linesOfCode(Text) <= 10)
       return;
-    if (Text.contains("FW_ASSERT") || Text.contains("static_assert") || Text.contains("assert(") ||
-        Text.contains("ASSERT_") || Text.contains("EXPECT_"))
+    static const std::regex Asserts("\\b(FW_ASSERT|assert|static_assert|(ASSERT|EXPECT)_[A-Z_0-9]+)\\s*\\(");
+    if (std::regex_search(Text.begin(), Text.end(), Asserts))
       return;
     QualType Ret = Fn->getReturnType().getUnqualifiedType();
     if (Ret->isBooleanType() || Ret->isEnumeralType() || isFppEnumClass(Ret))

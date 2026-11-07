@@ -134,7 +134,10 @@ private:
 class MultipleStmtsPerLineCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
-  void registerMatchers(MatchFinder *F) override { F->addMatcher(stmt(unless(expr())).bind("parent"), this); }
+  void registerMatchers(MatchFinder *F) override {
+    // Bodies of implicit members (defaulted copy assignment etc.) are compiler generated.
+    F->addMatcher(stmt(unless(expr()), unless(hasAncestor(functionDecl(isImplicit())))).bind("parent"), this);
+  }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Parent = R.Nodes.getNodeAs<Stmt>("parent");
     const SourceManager &SM = *R.SourceManager;
@@ -237,6 +240,10 @@ private:
 };
 
 // cpp/fprime/jpl-c/basic-int-types
+//
+// Candidates are collected while the TU is traversed; the "external API" exclusion
+// (values that come from or go to declarations outside the project) needs the whole
+// TU, so the verdicts are computed in onEndOfTranslationUnit.
 class BasicIntTypesCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
@@ -245,6 +252,7 @@ public:
     F->addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("fn"), this);
   }
   void check(const MatchFinder::MatchResult &R) override {
+    Ctx = R.Context;
     const SourceManager &SM = *R.SourceManager;
     const NamedDecl *D = nullptr;
     QualType T;
@@ -264,15 +272,19 @@ public:
     if (const auto *Fn = dyn_cast<FunctionDecl>(D); Fn && Fn->isTemplateInstantiation())
       return;
     if (const auto *V = dyn_cast<VarDecl>(D)) {
-      if (const auto *Fn = dyn_cast_or_null<FunctionDecl>(V->getDeclContext()); Fn && Fn->isTemplateInstantiation())
+      const auto *Fn = dyn_cast_or_null<FunctionDecl>(V->getDeclContext());
+      if (Fn && Fn->isTemplateInstantiation())
         return;
-      if (const auto *P = dyn_cast<ParmVarDecl>(V))
-        if (const auto *Fn = dyn_cast_or_null<FunctionDecl>(P->getDeclContext());
-            Fn && Fn->isOverloadedOperator() &&
+      if (const auto *P = dyn_cast<ParmVarDecl>(V)) {
+        if (Fn && Fn->isOverloadedOperator() &&
             (Fn->getOverloadedOperator() == OO_PlusPlus || Fn->getOverloadedOperator() == OO_MinusMinus))
           return;
-      if (isExternalApiDeclaration(V, *R.Context))
-        return;
+        // One report per parameter: prefer the definition's ParmVarDecl when the TU has it.
+        if (Fn && !Fn->doesThisDeclarationHaveABody() && Fn->getDefinition())
+          return;
+        if (!Fn)
+          return;
+      }
     }
     const BuiltinType *Used = nullptr;
     if (!usesBasicInt(T, SM, Used, 0))
@@ -280,13 +292,29 @@ public:
     if (Used->getKind() == BuiltinType::Char_S || Used->getKind() == BuiltinType::Char_U)
       if (isPlainCharIndirection(T))
         return;
-    if (const auto *Fn = dyn_cast<FunctionDecl>(D); Fn && returnsExternalValue(Fn, SM))
+    Candidates.push_back({D, Used});
+  }
+
+  void onEndOfTranslationUnit() override {
+    if (!Ctx || Candidates.empty()) {
+      Candidates.clear();
       return;
-    diag(D->getLocation(), "%0 uses the basic integral type %1 rather than a typedef with size and signedness.")
-        << D->getName() << QualType(Used, 0).getAsString();
+    }
+    ExternalApi External(*Ctx);
+    for (auto [D, Used] : Candidates) {
+      if (External.isExternal(D))
+        continue;
+      diag(D->getLocation(), "%0 uses the basic integral type %1 rather than a typedef with size and signedness.")
+          << D->getName() << QualType(Used, 0).getAsString();
+    }
+    Candidates.clear();
+    Ctx = nullptr;
   }
 
 private:
+  llvm::SmallVector<std::pair<const NamedDecl *, const BuiltinType *>, 32> Candidates;
+  ASTContext *Ctx = nullptr;
+
   static bool allowedTypedef(StringRef Name) {
     static const char *Allowed[] = {"I64", "U64", "I32", "U32", "I16", "U16", "I8", "U8", "F64", "F32", "int64_t", "uint64_t",
                                     "int32_t", "uint32_t", "int16_t", "uint16_t", "int8_t", "uint8_t"};
@@ -338,75 +366,174 @@ private:
       Base = AT->getElementType();
     else
       return false;
-    if (Base->isCharType() && !Base->isSignedIntegerType() == !Base->isUnsignedIntegerType())
-      return true;
     if (const auto *BT = Base->getAs<BuiltinType>())
       if (BT->getKind() == BuiltinType::Char_S || BT->getKind() == BuiltinType::Char_U)
         return true;
     return isPlainCharIndirection(Base);
   }
-  static bool isExternalFunction(const FunctionDecl *F, const SourceManager &SM) {
-    return F && SM.isInSystemHeader(F->getLocation());
-  }
-  static bool isExternalValueExpr(const Expr *E, const SourceManager &SM) {
-    if (!E)
-      return false;
-    E = E->IgnoreParenImpCasts();
-    if (const auto *C = dyn_cast<CallExpr>(E))
-      return isExternalFunction(C->getDirectCallee(), SM);
-    if (E->getBeginLoc().isMacroID()) {
-      // e.g. errno: a macro defined by a system header
-      SourceLocation Spelling = SM.getSpellingLoc(E->getBeginLoc());
-      return SM.isInSystemHeader(Spelling);
+
+  // CodeQL's externalApiDeclaration, computed as a fixpoint over the translation unit.
+  class ExternalApi {
+  public:
+    explicit ExternalApi(ASTContext &Ctx) : Ctx(Ctx), SM(Ctx.getSourceManager()) {
+      gather(Ctx.getTranslationUnitDecl());
+      seed();
+      for (unsigned Iter = 0; Iter < 8 && propagate(); ++Iter) {
+      }
     }
-    if (const auto *ME = dyn_cast<MemberExpr>(E))
-      return SM.isInSystemHeader(ME->getMemberDecl()->getLocation());
-    return false;
-  }
-  static bool returnsExternalValue(const FunctionDecl *Fn, const SourceManager &SM) {
-    if (!Fn->hasBody())
+    bool isExternal(const NamedDecl *D) const { return External.count(key(D)); }
+
+  private:
+    ASTContext &Ctx;
+    const SourceManager &SM;
+    llvm::SmallVector<const CallExpr *, 256> Calls;
+    llvm::SmallVector<const BinaryOperator *, 256> Ops;
+    llvm::SmallVector<const ReturnStmt *, 128> Returns;
+    llvm::SmallVector<const VarDecl *, 256> Vars;
+    std::set<const Decl *> External;
+
+    // Parameters are one entity across declaration and definition.
+    static const Decl *key(const NamedDecl *D) {
+      if (const auto *P = dyn_cast<ParmVarDecl>(D))
+        if (const auto *Fn = dyn_cast_or_null<FunctionDecl>(P->getDeclContext()))
+          return Fn->getCanonicalDecl()->getParamDecl(P->getFunctionScopeIndex());
+      if (const auto *Fn = dyn_cast<FunctionDecl>(D))
+        return Fn->getCanonicalDecl();
+      return D->getCanonicalDecl();
+    }
+    void gather(const Decl *D) {
+      if (const auto *DC = dyn_cast<DeclContext>(D))
+        for (const Decl *Child : DC->decls())
+          gather(Child);
+      if (const auto *FD = dyn_cast<FunctionDecl>(D); FD && FD->doesThisDeclarationHaveABody()) {
+        collect<CallExpr>(FD->getBody(), Calls);
+        collect<BinaryOperator>(FD->getBody(), Ops);
+        collect<ReturnStmt>(FD->getBody(), Returns);
+        gatherVars(FD->getBody());
+        for (const ParmVarDecl *P : FD->parameters())
+          Vars.push_back(P);
+      } else if (const auto *VD = dyn_cast<VarDecl>(D); VD && !isa<ParmVarDecl>(VD)) {
+        Vars.push_back(VD);
+        if (VD->getInit())
+          collect<CallExpr>(VD->getInit(), Calls);
+      }
+    }
+    void gatherVars(const Stmt *S) {
+      if (!S)
+        return;
+      if (const auto *DS = dyn_cast<DeclStmt>(S))
+        for (const Decl *D : DS->decls())
+          if (const auto *VD = dyn_cast<VarDecl>(D))
+            Vars.push_back(VD);
+      for (const Stmt *C : S->children())
+        gatherVars(C);
+    }
+    bool isExternalFunction(const FunctionDecl *F) const { return F && SM.isInSystemHeader(F->getLocation()); }
+    bool externalValue(const Expr *E) const {
+      if (!E)
+        return false;
+      E = E->IgnoreParenImpCasts();
+      if (const auto *C = dyn_cast<CallExpr>(E))
+        return isExternalFunction(C->getDirectCallee());
+      if (E->getBeginLoc().isMacroID() && SM.isInSystemHeader(SM.getSpellingLoc(E->getBeginLoc())))
+        return true; // errno, INADDR_ANY, ...
+      if (const auto *ME = dyn_cast<MemberExpr>(E))
+        return SM.isInSystemHeader(ME->getMemberDecl()->getLocation());
       return false;
-    llvm::SmallVector<const ReturnStmt *, 4> Rets;
-    collect<ReturnStmt>(Fn->getBody(), Rets);
-    return llvm::any_of(Rets, [&](const ReturnStmt *RS) { return isExternalValueExpr(RS->getRetValue(), SM); });
-  }
-  static bool isExternalApiDeclaration(const VarDecl *V, ASTContext &Ctx) {
-    const SourceManager &SM = Ctx.getSourceManager();
-    if (V->getInit() && isExternalValueExpr(V->getInit(), SM))
-      return true;
-    const Stmt *Scope = nullptr;
-    if (const auto *Fn = dyn_cast_or_null<FunctionDecl>(V->getDeclContext()))
-      Scope = Fn->getBody();
-    else if (const auto *Fn = dyn_cast_or_null<FunctionDecl>(V->getParentFunctionOrMethod()))
-      Scope = Fn->getBody();
-    if (!Scope)
-      return false;
-    llvm::SmallVector<const BinaryOperator *, 16> Ops;
-    collect<BinaryOperator>(Scope, Ops);
-    for (const BinaryOperator *B : Ops) {
-      if (B->getOpcode() == BO_Assign && accessedDecl(B->getLHS()->IgnoreParenImpCasts()) == V && isExternalValueExpr(B->getRHS(), SM))
+    }
+    llvm::SmallVector<const Expr *, 4> assignedExprs(const VarDecl *V) const {
+      llvm::SmallVector<const Expr *, 4> Out;
+      if (V->getInit())
+        Out.push_back(V->getInit());
+      for (const BinaryOperator *B : Ops)
+        if (B->getOpcode() == BO_Assign && accessedDecl(B->getLHS()->IgnoreParenImpCasts()) == V)
+          Out.push_back(B->getRHS());
+      return Out;
+    }
+    bool carriesExternal(const Expr *E) const {
+      if (externalValue(E))
         return true;
-      if (B->isComparisonOp()) {
-        bool Mine = accessedDecl(B->getLHS()->IgnoreParenImpCasts()) == V || accessedDecl(B->getRHS()->IgnoreParenImpCasts()) == V;
-        if (Mine && (isExternalValueExpr(B->getLHS(), SM) || isExternalValueExpr(B->getRHS(), SM)))
-          return true;
-      }
+      if (const auto *V = dyn_cast_or_null<VarDecl>(accessedDecl(E->IgnoreParenImpCasts())))
+        for (const Expr *A : assignedExprs(V))
+          if (externalValue(A))
+            return true;
+      return false;
     }
-    llvm::SmallVector<const CallExpr *, 16> Calls;
-    collect<CallExpr>(Scope, Calls);
-    for (const CallExpr *C : Calls) {
-      if (!isExternalFunction(C->getDirectCallee(), SM))
-        continue;
-      for (const Expr *Arg : C->arguments()) {
-        const Expr *A = Arg->IgnoreParenImpCasts();
-        if (const auto *U = dyn_cast<UnaryOperator>(A); U && U->getOpcode() == UO_AddrOf)
-          A = U->getSubExpr()->IgnoreParenImpCasts();
-        if (accessedDecl(A) == V)
-          return true;
-      }
+    static const Expr *stripAddrOf(const Expr *E) {
+      E = E->IgnoreParenImpCasts();
+      if (const auto *U = dyn_cast<UnaryOperator>(E); U && U->getOpcode() == UO_AddrOf)
+        return U->getSubExpr()->IgnoreParenImpCasts();
+      return E;
     }
-    return false;
-  }
+    void seed() {
+      for (const VarDecl *V : Vars) {
+        for (const Expr *A : assignedExprs(V))
+          if (externalValue(A) || (V->getInit() == A && A->getBeginLoc().isMacroID() &&
+                                   SM.isInSystemHeader(SM.getSpellingLoc(A->getBeginLoc()))))
+            External.insert(key(V));
+        for (const BinaryOperator *B : Ops)
+          if (B->isComparisonOp()) {
+            bool Mine = accessedDecl(B->getLHS()->IgnoreParenImpCasts()) == V ||
+                        accessedDecl(B->getRHS()->IgnoreParenImpCasts()) == V;
+            if (Mine && (carriesExternal(B->getLHS()) || carriesExternal(B->getRHS())))
+              External.insert(key(V));
+          }
+      }
+      for (const CallExpr *C : Calls) {
+        const FunctionDecl *Callee = C->getDirectCallee();
+        if (!Callee)
+          continue;
+        if (isExternalFunction(Callee))
+          for (const Expr *Arg : C->arguments())
+            if (const auto *V = dyn_cast_or_null<VarDecl>(accessedDecl(stripAddrOf(Arg))))
+              External.insert(key(V));
+        for (unsigned I = 0; I < C->getNumArgs() && I < Callee->getNumParams(); ++I)
+          if (carriesExternal(C->getArg(I)))
+            External.insert(key(Callee->getParamDecl(I)));
+      }
+      for (const ReturnStmt *RS : Returns)
+        if (RS->getRetValue() && carriesExternal(RS->getRetValue()))
+          if (const FunctionDecl *F = enclosingFunction(RS, Ctx))
+            External.insert(key(F));
+    }
+    bool propagate() {
+      size_t Before = External.size();
+      for (const VarDecl *V : Vars) {
+        if (External.count(key(V)))
+          continue;
+        bool Ext = false;
+        for (const BinaryOperator *B : Ops) {
+          if (B->getOpcode() == BO_Assign && accessedDecl(B->getRHS()->IgnoreParenImpCasts()) == V)
+            if (const auto *V2 = dyn_cast_or_null<VarDecl>(accessedDecl(B->getLHS()->IgnoreParenImpCasts()));
+                V2 && External.count(key(V2)))
+              Ext = true;
+          if (B->isComparisonOp()) {
+            const ValueDecl *L = accessedDecl(B->getLHS()->IgnoreParenImpCasts());
+            const ValueDecl *Rr = accessedDecl(B->getRHS()->IgnoreParenImpCasts());
+            const ValueDecl *Other = L == V ? Rr : Rr == V ? L : nullptr;
+            if (Other && Other != V && isa<VarDecl>(Other) && External.count(key(cast<VarDecl>(Other))))
+              Ext = true;
+          }
+        }
+        for (const VarDecl *V2 : Vars)
+          if (V2 != V && External.count(key(V2)) && V2->getInit() &&
+              accessedDecl(V2->getInit()->IgnoreParenImpCasts()) == V)
+            Ext = true;
+        if (!Ext)
+          for (const CallExpr *C : Calls) {
+            const FunctionDecl *Callee = C->getDirectCallee();
+            if (!Callee)
+              continue;
+            for (unsigned I = 0; I < C->getNumArgs() && I < Callee->getNumParams(); ++I)
+              if (accessedDecl(stripAddrOf(C->getArg(I))) == V && External.count(key(Callee->getParamDecl(I))))
+                Ext = true;
+          }
+        if (Ext)
+          External.insert(key(V));
+      }
+      return External.size() != Before;
+    }
+  };
 };
 
 // cpp/fprime/jpl-c/non-const-function-pointer
@@ -418,15 +545,19 @@ public:
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Call = R.Nodes.getNodeAs<CallExpr>("call");
-    if (Call->getDirectCallee())
-      return; // direct call to a known function
     const Expr *Callee = Call->getCallee()->IgnoreParenImpCasts();
+    // A function-pointer template argument is still a call through a pointer in the instantiation.
+    bool Substituted = isa<SubstNonTypeTemplateParmExpr>(Call->getCallee()->IgnoreParens()) ||
+                       isa<SubstNonTypeTemplateParmExpr>(Callee);
+    if (Call->getDirectCallee() && !Substituted)
+      return; // direct call to a known function
     if (isa<CXXPseudoDestructorExpr>(Callee) || isa<UnresolvedLookupExpr>(Callee) || Callee->getType().isNull())
       return;
     QualType T = Callee->getType();
-    if (T->isMemberPointerType())
-      return;
-    if (!T->isFunctionPointerType() && !T->isFunctionType() && !T->isFunctionReferenceType())
+    if (const auto *BO = dyn_cast<BinaryOperator>(Callee); BO && BO->isPtrMemOp())
+      T = BO->getRHS()->getType(); // (obj->*member_fn_ptr)(...): the pointer is the RHS
+    if (!Substituted && !T->isFunctionPointerType() && !T->isFunctionType() && !T->isFunctionReferenceType() &&
+        !T->isMemberFunctionPointerType())
       return;
     if (T.isConstQualified())
       return;
@@ -533,7 +664,11 @@ public:
   }
 
 private:
-  static bool hasSideEffect(const Stmt *S) {
+  // Memoised, cycle-safe recursion over the call graph (CodeQL's least-fixpoint semantics:
+  // a function is only unsafe/impure when that is derivable, so cycles contribute false).
+  std::map<const FunctionDecl *, int> UnsafeMemo, ImpureMemo; // 0 in progress, 1 true, 2 false
+
+  bool hasSideEffect(const Stmt *S) {
     if (!S)
       return false;
     if (const auto *B = dyn_cast<BinaryOperator>(S); B && B->isAssignmentOp())
@@ -546,8 +681,8 @@ private:
       const FunctionDecl *F = C->getDirectCallee();
       if (!F)
         return true; // indirect call
-      if (!F->isConstexpr() && F->getQualifiedNameAsString() != "Fw::SwAssert" && (inherentlyUnsafe(F, 0) || !safeToCall(F)) &&
-          maybeImpure(F, 0))
+      if (!F->isConstexpr() && F->getQualifiedNameAsString() != "Fw::SwAssert" && (inherentlyUnsafe(F) || !safeToCall(F)) &&
+          maybeImpure(F))
         return true;
     }
     for (const Stmt *Child : S->children())
@@ -569,11 +704,11 @@ private:
           return true;
     return false;
   }
-  static bool safeToCall(const FunctionDecl *F) {
+  bool safeToCall(const FunctionDecl *F) {
     for (const ParmVarDecl *P : F->parameters())
       if (pointsToNonConst(P->getType(), 0))
         return false;
-    return !inherentlyUnsafe(F, 0);
+    return !inherentlyUnsafe(F);
   }
   static bool writesGlobal(const Stmt *S) {
     if (!S)
@@ -592,18 +727,29 @@ private:
         return true;
     return false;
   }
-  static bool inherentlyUnsafe(const FunctionDecl *F, unsigned Depth) {
+  bool inherentlyUnsafe(const FunctionDecl *F) {
+    F = F->getCanonicalDecl();
+    auto It = UnsafeMemo.find(F);
+    if (It != UnsafeMemo.end())
+      return It->second == 1;
+    UnsafeMemo[F] = 0;
+    bool Result = false;
     const FunctionDecl *Def = nullptr;
-    if (!F->hasBody(Def) || !Def || Depth > 3)
-      return false;
-    if (writesGlobal(Def->getBody()))
-      return true;
-    llvm::SmallVector<const CallExpr *, 8> Calls;
-    collect<CallExpr>(Def->getBody(), Calls);
-    for (const CallExpr *C : Calls)
-      if (const FunctionDecl *Callee = C->getDirectCallee(); Callee && Callee != F && inherentlyUnsafe(Callee, Depth + 1))
-        return true;
-    return false;
+    if (F->hasBody(Def) && Def) {
+      if (writesGlobal(Def->getBody()))
+        Result = true;
+      else {
+        llvm::SmallVector<const CallExpr *, 8> Calls;
+        collect<CallExpr>(Def->getBody(), Calls);
+        for (const CallExpr *C : Calls)
+          if (const FunctionDecl *Callee = C->getDirectCallee(); Callee && inherentlyUnsafe(Callee)) {
+            Result = true;
+            break;
+          }
+      }
+    }
+    UnsafeMemo[F] = Result ? 1 : 2;
+    return Result;
   }
   static bool writesNonLocal(const Stmt *S) {
     if (!S)
@@ -624,32 +770,43 @@ private:
         return true;
     return false;
   }
-  static bool maybeImpure(const FunctionDecl *F, unsigned Depth) {
+  bool maybeImpure(const FunctionDecl *F) {
+    F = F->getCanonicalDecl();
     const FunctionDecl *Def = nullptr;
     if (!F->hasBody(Def) || !Def)
       return true;
-    if (Depth > 3)
-      return true;
-    if (writesNonLocal(Def->getBody()))
-      return true;
-    llvm::SmallVector<const Stmt *, 32> Nodes;
-    collect<Stmt>(Def->getBody(), Nodes);
-    for (const Stmt *N : Nodes) {
-      if (isa<CXXNewExpr>(N) || isa<CXXDeleteExpr>(N) || isa<AsmStmt>(N))
-        return true;
-      if (const auto *C = dyn_cast<CallExpr>(N)) {
-        const FunctionDecl *Callee = C->getDirectCallee();
-        if (!Callee)
-          return true;
-        if (Callee->isConstexpr() || Callee->getQualifiedNameAsString() == "Fw::SwAssert" || Callee == F)
-          continue;
-        if (maybeImpure(Callee, Depth + 1) && (Callee->hasBody() || !safeCallTarget(Callee)))
-          return true;
+    auto It = ImpureMemo.find(F);
+    if (It != ImpureMemo.end())
+      return It->second == 1;
+    ImpureMemo[F] = 0;
+    bool Result = writesNonLocal(Def->getBody());
+    if (!Result) {
+      llvm::SmallVector<const Stmt *, 32> Nodes;
+      collect<Stmt>(Def->getBody(), Nodes);
+      for (const Stmt *N : Nodes) {
+        if (isa<CXXNewExpr>(N) || isa<CXXDeleteExpr>(N) || isa<AsmStmt>(N)) {
+          Result = true;
+          break;
+        }
+        if (const auto *C = dyn_cast<CallExpr>(N)) {
+          const FunctionDecl *Callee = C->getDirectCallee();
+          if (!Callee) {
+            Result = true;
+            break;
+          }
+          if (Callee->isConstexpr() || Callee->getQualifiedNameAsString() == "Fw::SwAssert")
+            continue;
+          if (maybeImpure(Callee) && (Callee->hasBody() || !safeCallTarget(Callee))) {
+            Result = true;
+            break;
+          }
+        }
       }
     }
-    return false;
+    ImpureMemo[F] = Result ? 1 : 2;
+    return Result;
   }
-  static bool safeCallTarget(const FunctionDecl *F) {
+  bool safeCallTarget(const FunctionDecl *F) {
     if (!safeToCall(F))
       return false;
     if (const auto *M = dyn_cast<CXXMethodDecl>(F)) {

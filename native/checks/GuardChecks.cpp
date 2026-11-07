@@ -127,10 +127,11 @@ public:
       return;
     if (isConstantValue(Op, *R.Context))
       return;
-    // Operands narrower than the result type cannot overflow it (range analysis shortcut).
+    // Range-analysis shortcut: the operation can only overflow when some operand is unbounded.
     uint64_t Width = R.Context->getTypeSize(T);
-    uint64_t LW = R.Context->getTypeSize(L->getType()), RW = R.Context->getTypeSize(Rr->getType());
-    if (Op->getOpcode() == BO_Mul ? (LW + RW < Width) : (LW < Width && RW < Width))
+    bool LB = bounded(L, Width, Op->getOpcode() == BO_Mul, *R.Context);
+    bool RB = bounded(Rr, Width, Op->getOpcode() == BO_Mul, *R.Context);
+    if (LB && RB)
       return;
     if (operandGuarded(L, Op, Fn, *R.Context) || operandGuarded(Rr, Op, Fn, *R.Context))
       return;
@@ -139,6 +140,17 @@ public:
   }
 
 private:
+  // Constant, promoted from a narrower type, or a conditional of bounded arms.
+  static bool bounded(const Expr *E, uint64_t Width, bool Mul, ASTContext &Ctx) {
+    E = E->IgnoreParens();
+    if (isConstantValue(E, Ctx))
+      return true;
+    if (const auto *C = dyn_cast<ConditionalOperator>(E))
+      return bounded(C->getTrueExpr(), Width, Mul, Ctx) && bounded(C->getFalseExpr(), Width, Mul, Ctx);
+    const Expr *Inner = E->IgnoreParenImpCasts();
+    uint64_t W = Ctx.getTypeSize(Inner->getType());
+    return Mul ? W * 2 < Width : W < Width;
+  }
   static bool operandGuarded(const Expr *Operand, const Stmt *Use, const FunctionDecl *Fn, ASTContext &Ctx) {
     const ValueDecl *V = accessedDecl(Operand);
     return V && guardedBefore(V, Use, Fn, Ctx);

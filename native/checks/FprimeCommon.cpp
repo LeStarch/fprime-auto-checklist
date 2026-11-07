@@ -56,12 +56,13 @@ bool fromSource(SourceLocation Loc, const SourceManager &SM) {
 
 namespace {
 
-// Collects every DeclRefExpr to V that is part of a condition or an asserted expression.
+// Collects every access to V that is part of a condition or an asserted expression
+// (CodeQL's checkingAccess): the guard node is the access itself.
 class GuardCollector : public RecursiveASTVisitor<GuardCollector> {
 public:
   explicit GuardCollector(const ValueDecl *V) : V(V) {}
 
-  llvm::SmallVector<const Stmt *, 8> Guards;
+  llvm::SmallVector<const Expr *, 8> Guards;
 
   bool VisitIfStmt(IfStmt *S) { return addIfReads(S->getCond()); }
   bool VisitWhileStmt(WhileStmt *S) { return addIfReads(S->getCond()); }
@@ -82,30 +83,21 @@ public:
 
 private:
   bool addIfReads(const Expr *Cond) {
-    if (Cond && reads(Cond))
-      Guards.push_back(Cond);
+    if (Cond)
+      collectReads(Cond);
     return true;
   }
-  bool reads(const Stmt *S) const {
+  void collectReads(const Stmt *S) {
     if (const auto *E = dyn_cast<Expr>(S))
-      if (accessedDecl(E) == V)
-        return true;
+      if (accessedDecl(E) == V && !llvm::is_contained(Guards, E))
+        Guards.push_back(E);
     for (const Stmt *Child : S->children())
-      if (Child && reads(Child))
-        return true;
-    return false;
+      if (Child)
+        collectReads(Child);
   }
   const ValueDecl *V;
 };
 
-bool contains(const Stmt *Outer, const Stmt *Inner) {
-  if (Outer == Inner)
-    return true;
-  for (const Stmt *C : Outer->children())
-    if (C && contains(C, Inner))
-      return true;
-  return false;
-}
 
 const CFGBlock *blockOf(const CFG &G, const Stmt *S, unsigned *Index) {
   for (const CFGBlock *B : G) {
@@ -178,10 +170,7 @@ bool isCheckingAccess(const ValueDecl *V, const Expr *Access, const FunctionDecl
     return false;
   GuardCollector Collector(V);
   Collector.TraverseStmt(F->getBody());
-  for (const Stmt *Guard : Collector.Guards)
-    if (contains(Guard, Access))
-      return true;
-  return false;
+  return llvm::is_contained(Collector.Guards, Access);
 }
 
 bool guardedBefore(const ValueDecl *V, const Stmt *Use, const FunctionDecl *F, ASTContext &Ctx, bool Strict) {
@@ -202,9 +191,7 @@ bool guardedBefore(const ValueDecl *V, const Stmt *Use, const FunctionDecl *F, A
     return false;
   CFGDominatorTreeImpl<false> Dom;
   Dom.buildDominatorTree(G.get());
-  for (const Stmt *Guard : Collector.Guards) {
-    if (contains(Guard, Use))
-      continue; // the use is inside its own guard
+  for (const Expr *Guard : Collector.Guards) {
     unsigned GuardIndex = 0;
     const CFGBlock *GuardBlock = blockOfOrParent(*G, Guard, Ctx, &GuardIndex);
     if (!GuardBlock)

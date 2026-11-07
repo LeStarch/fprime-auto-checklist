@@ -370,6 +370,8 @@ class DefineConstantCheck : public ClangTidyCheck {
       if (!MI || MI->isFunctionLike() || MI->isBuiltinMacro() || !fromSource(MI->getDefinitionLoc(), SM))
         return;
       StringRef Path = SM.getFilename(MI->getDefinitionLoc());
+      if (Path.empty() || Path.startswith("<")) // -D on the command line, <built-in>
+        return;
       if (Path.contains("/config/") || inTestPath(Path) || Path.endswith("Ac.hpp") || Path.endswith("Ac.cpp"))
         return;
       std::string Body;
