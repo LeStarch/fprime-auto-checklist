@@ -1,0 +1,27 @@
+typedef unsigned int U32;
+typedef float F32;
+enum Mode { M_A, M_B };
+struct Pod { U32 x; };
+void fill(U32* p);
+void fillArr(U32 a[4]);
+void fillRef(U32& r);
+class Base { public: Base() : m_b(0) {} U32 m_b; };
+class A { public: A() {} U32 m_u; F32 m_f; Mode m_mode; U32* m_p; U32 m_arr[4]; Pod m_pod; Pod m_pods[2]; bool m_flag; };
+class B { public: B() : m_u(0), m_arr() {} U32 m_u; U32 m_arr[4]; };
+class C { public: C() { m_u = 1; m_p = &m_u; fill(&m_x); fillArr(m_arr); fillRef(m_r); } U32 m_u; U32* m_p; U32 m_x; U32 m_arr[4]; U32 m_r; };
+class D { public: D() { init(); } void init() { m_u = 0; } U32 m_u; U32 m_v; };
+class E { public: E() { helper(); } void helper() { deeper(); } void deeper() { m_u = 0; } U32 m_u; };
+class F { public: F(); U32 m_u; };
+F::F() {}
+class G { public: G() = default; U32 m_u; };
+class H { public: H(const H&) {} H(H&&) {} H() {} U32 m_u; };
+class I { public: I() {} U32 m_u = 1; static U32 s_u; const U32 m_c = 2; };
+class J { public: J() : m_x(1) {} J(U32 v) {} U32 m_x; };
+class K : public Base { public: K() {} U32 m_k; };
+union U { U() {} U32 a; F32 b; };
+class L { public: L() { m_u += 1; } U32 m_u; };
+class M { public: M() { U32 t = m_u; (void)t; } U32 m_u; };
+class N { public: N() { m_u++; } U32 m_u; };
+class O { public: template <typename T> O(T t) { (void)t; } U32 m_u; };
+class P { public: P() { auto l = [this] { m_u = 0; }; l(); } U32 m_u; };
+class Q { public: Q() { m_arr[0] = 1; } U32 m_arr[4]; U32 m_grid[2][2]; };

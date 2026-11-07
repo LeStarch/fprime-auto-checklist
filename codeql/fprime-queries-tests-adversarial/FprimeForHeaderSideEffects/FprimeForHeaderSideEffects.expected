@@ -1,0 +1,6 @@
+| test.cpp:10:31:10:33 | ... ++ | This for-statement header expression modifies the non-loop-control variable j. |
+| test.cpp:11:31:11:34 | call to sink | This for-statement header expression calls the function sink. |
+| test.cpp:13:12:13:15 | call to size | This for-statement header expression calls the function size. |
+| test.cpp:21:31:21:33 | -- ... | This for-statement header expression modifies the non-loop-control variable j. |
+| test.cpp:24:8:24:11 | call to sink | This for-statement header expression calls the function sink. |
+| test.cpp:27:61:27:63 | ... ++ | This for-statement header expression modifies the non-loop-control variable i. |
