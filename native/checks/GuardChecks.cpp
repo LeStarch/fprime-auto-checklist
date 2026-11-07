@@ -245,7 +245,7 @@ public:
 
 private:
   static const Expr *accessOf(const Expr *E, const ParmVarDecl *P) {
-    const Expr *Inner = E->IgnoreParenImpCasts();
+    const Expr *Inner = E->IgnoreParenCasts();
     return accessedDecl(Inner) == P ? Inner : nullptr;
   }
   // An assignment or ++/-- of the parameter that dominates the use ends CodeQL's uncheckedFlow.
