@@ -46,10 +46,11 @@ class Finding:
 
 @dataclass
 class CodeqlEvidence:
-    """Module-scoped CodeQL results; ``ran`` is False when CodeQL was skipped."""
+    """Module-scoped static-analysis results (CodeQL or the clang-tidy swap-in); ``ran`` is False when skipped."""
 
     ran: bool
     reason: str = ""
+    tool: str = "CodeQL"
     findings: Dict[str, List[Finding]] = field(default_factory=dict)
     rules_run: List[str] = field(default_factory=list)
     autocode_findings: int = 0
@@ -87,9 +88,9 @@ def _check_outcome(ev: Evidence, records: Dict[str, dict]) -> tuple:
 
 def _codeql_outcome(ev: Evidence, codeql: CodeqlEvidence) -> tuple:
     if not codeql.ran:
-        return UNCHECKED, [f"CodeQL `{ev.ref}` not run: {codeql.reason}"]
+        return UNCHECKED, [f"{codeql.tool} `{ev.ref}` not run: {codeql.reason}"]
     if ev.ref not in codeql.rules_run:
-        return UNCHECKED, [f"CodeQL `{ev.ref}` was not part of the analysis"]
+        return UNCHECKED, [f"{codeql.tool} `{ev.ref}` was not part of the analysis"]
     findings = codeql.findings.get(ev.ref, [])
     if findings:
         return NO, [f"`{ev.ref}` {f}" for f in findings]

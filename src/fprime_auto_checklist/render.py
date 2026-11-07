@@ -72,11 +72,11 @@ def render_markdown(
     if codeql.ran:
         lines += [
             "",
-            f"_CodeQL: {len(codeql.rules_run)} rules run; {codeql.autocode_findings} finding(s) in autocoded "
+            f"_{codeql.tool}: {len(codeql.rules_run)} rules run; {codeql.autocode_findings} finding(s) in autocoded "
             "files were set aside (autocoder, not component)._",
         ]
     else:
-        lines += ["", f"_CodeQL did not run: {codeql.reason}_"]
+        lines += ["", f"_{codeql.tool} did not run: {codeql.reason}_"]
 
     for section_id, title in SECTIONS:
         lines += ["", f"## {section_id}. {title}", "", "| # | Item | Status | Notes |", "|---|------|--------|-------|"]
@@ -104,6 +104,7 @@ def render_json(verdicts: List[Verdict], records: Dict[str, dict], codeql: Codeq
         "checks": records,
         "codeql": {
             "ran": codeql.ran,
+            "tool": codeql.tool,
             "reason": codeql.reason,
             "rules_run": codeql.rules_run,
             "autocode_findings": codeql.autocode_findings,

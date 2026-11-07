@@ -22,7 +22,9 @@ FIXTURES = ROOT / "codeql" / "fprime-queries-tests"
 QUERIES = ROOT / "src" / "fprime_auto_checklist" / "queries" / "fprime-queries"
 
 _EXPECTED = re.compile(r"^\|\s*test\.cpp:(\d+):(\d+):(\d+):(\d+)\s*\|")
-_DIAG = re.compile(r"^(?P<file>[^:\n]+):(?P<line>\d+):(?P<col>\d+): (?P<level>warning|error): (?P<msg>.*) \[(?P<check>[\w.-]+)\]$")
+_DIAG = re.compile(
+    r"^(?P<file>[^:\n]+):(?P<line>\d+):(?P<col>\d+): (?P<level>warning|error): (?P<msg>.*) \[(?P<check>[\w.-]+)\]$"
+)
 
 
 def rule_id(query_dir: Path) -> str:

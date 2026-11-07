@@ -171,7 +171,7 @@ def load_sarif(path: Path) -> dict:
         return json.load(fh)
 
 
-def scope_findings(sarif: dict, module_rel: str, rules: Sequence[str]) -> CodeqlEvidence:
+def scope_findings(sarif: dict, module_rel: str, rules: Sequence[str], tool: str = "CodeQL") -> CodeqlEvidence:
     """Keep findings located in the module's own (non-generated) files."""
     module_prefix = module_rel.strip("/").rstrip("/") + "/"
     findings: Dict[str, List[Finding]] = {}
@@ -198,4 +198,6 @@ def scope_findings(sarif: dict, module_rel: str, rules: Sequence[str]) -> Codeql
                 break
     for rule in rules:
         findings.setdefault(rule, [])
-    return CodeqlEvidence(ran=True, findings=findings, rules_run=sorted(set(rules_run)), autocode_findings=autocode)
+    return CodeqlEvidence(
+        ran=True, tool=tool, findings=findings, rules_run=sorted(set(rules_run)), autocode_findings=autocode
+    )
