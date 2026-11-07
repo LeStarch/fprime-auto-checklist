@@ -1,0 +1,14 @@
+| test.cpp:8:11:8:15 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:10:8:10:12 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:11:17:11:21 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:13:22:13:26 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:14:12:14:16 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:24:3:24:8 | ... %= ... | The divisor b is not checked against zero before this %= operation. |
+| test.cpp:25:3:25:8 | ... /= ... | The divisor b is not checked against zero before this /= operation. |
+| test.cpp:26:8:26:14 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:27:8:27:17 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:28:8:28:30 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:33:28:33:32 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:47:49:47:53 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:47:49:47:53 | ... / ... | The divisor b is not checked against zero before this / operation. |
+| test.cpp:50:62:50:66 | ... / ... | The divisor b is not checked against zero before this / operation. |

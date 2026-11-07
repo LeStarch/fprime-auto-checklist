@@ -1,0 +1,6 @@
+| test.cpp:9:11:9:15 | ... / ... | The floating-point divisor f is not checked against zero (or a minimum magnitude) before this division. |
+| test.cpp:15:25:15:29 | ... / ... | The floating-point divisor d is not checked against zero (or a minimum magnitude) before this division. |
+| test.cpp:21:8:21:18 | ... / ... | The floating-point divisor scale is not checked against zero (or a minimum magnitude) before this division. |
+| test.cpp:30:11:30:15 | ... / ... | The floating-point divisor f is not checked against zero (or a minimum magnitude) before this division. |
+| test.cpp:35:27:35:31 | ... / ... | The floating-point divisor f is not checked against zero (or a minimum magnitude) before this division. |
+| test.cpp:38:49:38:53 | ... / ... | The floating-point divisor b is not checked against zero (or a minimum magnitude) before this division. |
