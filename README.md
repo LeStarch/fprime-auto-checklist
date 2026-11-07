@@ -65,6 +65,24 @@ fprime-auto-checklist run --module Svc/MyComponent -o MyComponent-checklist.md -
 
    and a **Hand-off** section listing what is left for the reviewer.
 
+4. apply the module's **human/LLM overrides**, if `docs/checklist-overrides.md`
+   exists (or `--overrides <file>`): a Markdown table whose rows with a status
+   replace that item's tool verdict; rows with an empty status leave the tool
+   verdict alone, so the file can list every item as a template.
+
+   ```markdown
+   | # | Status | By | Date | Justification |
+   |---|--------|----|------|---------------|
+   | 3.21 | YES | J. Doe | 2026-11-07 | No ISRs: passive queued component. |
+   | 2.12 | N/A | llm:claude | 2026-11-07 | Container priorities come from the deployment config. |
+   | 3.33 | | | | |
+   ```
+
+   Status is `YES`, `NO` or `N/A`; `By` and `Justification` are mandatory; a
+   malformed row rejects the whole file (exit 2) rather than being ignored.
+   Overridden items show *(override)* after the status and keep the tool's own
+   verdict in Notes; the JSON carries `tool_status` and `override` per item.
+
 Exit codes: `0` no item is NO; `1` at least one item is NO; `2` usage error;
 `3` CodeQL was requested (no `--skip-codeql`) but could not run — license gate
 refused, CLI missing, or database/analysis failed — so its items are
@@ -77,6 +95,7 @@ fprime-auto-checklist run --module Svc/X --skip-codeql           # scripts only
 fprime-auto-checklist run --module Svc/X --codeql-db ../db        # reuse a database
 fprime-auto-checklist run --module Svc/X --sarif codeql.sarif     # reuse an analysis
 fprime-auto-checklist run --module Svc/X --build --deployment Ref -j8
+fprime-auto-checklist run --module Svc/X --overrides review/answers.md  # overrides outside docs/
 fprime-auto-checklist items                                       # item → evidence map
 fprime-auto-checklist license-check --project .                   # CodeQL terms gate only
 ```

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .checklist import ITEMS, REVIEW_RULES, Evidence, Item
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .overrides import Override
 
 YES, NO, NA, REVIEW, UNCHECKED = "YES", "NO", "N/A", "REVIEW", "UNCHECKED"
 
@@ -61,6 +64,9 @@ class Verdict:
     item: Item
     status: str
     notes: List[str]
+    #: Set when a human/LLM override replaced the tool's verdict (``status`` is then the override).
+    tool_status: Optional[str] = None
+    override: Optional["Override"] = None
 
 
 def _check_outcome(ev: Evidence, records: Dict[str, dict]) -> tuple:
@@ -156,10 +162,20 @@ def summarize(verdicts: List[Verdict]) -> Dict[str, int]:
 
 
 def verdicts_to_json(verdicts: List[Verdict]) -> List[dict]:
-    return [
-        {"id": v.item.id, "section": v.item.section, "text": v.item.text, "status": v.status, "notes": v.notes}
-        for v in verdicts
-    ]
+    rows = []
+    for v in verdicts:
+        row = {"id": v.item.id, "section": v.item.section, "text": v.item.text, "status": v.status, "notes": v.notes}
+        if v.override is not None:
+            row["tool_status"] = v.tool_status
+            row["override"] = {
+                "status": v.override.status,
+                "by": v.override.by,
+                "date": v.override.date,
+                "justification": v.override.justification,
+                "source": v.override.source,
+            }
+        rows.append(row)
+    return rows
 
 
 def get_item(item_id: str) -> Optional[Item]:

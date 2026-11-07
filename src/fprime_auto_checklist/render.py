@@ -33,9 +33,11 @@ def render_markdown(
     owner: str = "",
     contributors: str = "",
     now: Optional[dt.datetime] = None,
+    overrides_source: Optional[str] = None,
 ) -> str:
     now = now or dt.datetime.now(dt.timezone.utc)
     counts = summarize(verdicts)
+    overridden = sum(1 for v in verdicts if v.override is not None)
     lines = [
         "# F\u00b4 (F Prime) Component Development Checklist",
         "",
@@ -49,6 +51,7 @@ def render_markdown(
         + (f" at `{commit[:12]}`" if commit else "")
         + ". "
         + ", ".join(f"{STATUS_LABELS[s]} {n}" for s, n in counts.items())
+        + (f"; {overridden} overridden by `{overrides_source}`" if overridden else "")
         + "._",
         "",
         "## Status Legend",
@@ -60,6 +63,8 @@ def render_markdown(
     lines += [
         "",
         f"**Note:** Any status other than **{STATUS_LABELS[YES]}** requires an explanation in the **Notes** column.",
+        "A status marked *(override)* was set by a human or LLM in the module's `docs/checklist-overrides.md`; "
+        "the tool's own verdict is kept in Notes.",
         "",
         "## Definitions",
         "",
@@ -84,22 +89,31 @@ def render_markdown(
             if v.item.section != section_id:
                 continue
             notes = "<br>".join(_cell(n) for n in v.notes)
-            lines.append(f"| {v.item.id} | {_cell(v.item.text)} | {STATUS_LABELS[v.status]} | {notes} |")
+            status = STATUS_LABELS[v.status] + (" *(override)*" if v.override is not None else "")
+            lines.append(f"| {v.item.id} | {_cell(v.item.text)} | {status} | {notes} |")
 
     pending = [v for v in verdicts if v.status == REVIEW]
     if pending:
-        lines += ["", "## Hand-off", "", "Items left for a human or LLM reviewer:", ""]
+        lines += [
+            "",
+            "## Hand-off",
+            "",
+            "Items left for a human or LLM reviewer; record each decision as a row of "
+            "`docs/checklist-overrides.md` (`| # | Status | By | Date | Justification |`):",
+            "",
+        ]
         lines += [f"- **{v.item.id}** \u2014 {v.notes[0] if v.notes else ''}" for v in pending]
     return "\n".join(lines) + "\n"
 
 
 def render_json(verdicts: List[Verdict], records: Dict[str, dict], codeql: CodeqlEvidence, **meta) -> str:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "tool": {"name": "fprime-auto-checklist", "version": __version__},
         "checklist_version": CHECKLIST_VERSION,
         **meta,
         "summary": summarize(verdicts),
+        "overrides": sum(1 for v in verdicts if v.override is not None),
         "items": verdicts_to_json(verdicts),
         "checks": records,
         "codeql": {
