@@ -144,6 +144,15 @@ private:
           for (const Expr *Arg : C->arguments())
             if (Arg->IgnoreParenImpCasts() == ME)
               return true;
+        // Passed by non-const reference: CodeQL's VariableAccess.isModified().
+        if (const FunctionDecl *Callee = C->getDirectCallee()) {
+          unsigned Off = isa<CXXOperatorCallExpr>(C) && isa<CXXMethodDecl>(Callee) ? 1 : 0;
+          for (unsigned I = Off; I < C->getNumArgs(); ++I)
+            if (C->getArg(I)->IgnoreParenImpCasts() == ME && I - Off < Callee->getNumParams())
+              if (const auto *RT = Callee->getParamDecl(I - Off)->getType()->getAs<LValueReferenceType>();
+                  RT && !RT->getPointeeType().isConstQualified())
+                return true;
+        }
         if (const auto *MC = dyn_cast<CXXMemberCallExpr>(C))
           if (MC->getImplicitObjectArgument()->IgnoreParenImpCasts() == ME && !MC->getMethodDecl()->isConst())
             return true;
@@ -225,11 +234,14 @@ private:
       const Stmt *P = Parents[0].get<Stmt>();
       if (!P)
         return false;
+      // Empirically (CodeQL oracle): only an `if` whose whole condition is one expression
+      // gates; `a && b` / `a || b` conditions and `switch` expressions do not.
       const Expr *Cond = nullptr;
       if (const auto *If = dyn_cast<IfStmt>(P))
         Cond = containsStmt(If->getCond(), Call) ? nullptr : If->getCond();
-      else if (const auto *Sw = dyn_cast<SwitchStmt>(P))
-        Cond = containsStmt(Sw->getCond(), Call) ? nullptr : Sw->getCond();
+      if (Cond)
+        if (const auto *BO = dyn_cast<BinaryOperator>(Cond->IgnoreParenImpCasts()); BO && BO->isLogicalOp())
+          Cond = nullptr;
       if (Cond) {
         llvm::SmallVector<const MemberExpr *, 4> Fields;
         collect<MemberExpr>(Cond, Fields);
@@ -255,6 +267,7 @@ public:
       return;
     // Sources: command arguments and parameter-get results, propagated through local variables.
     std::map<const ValueDecl *, std::string> Tainted;
+    std::map<const ValueDecl *, SourceLocation> Killed;
     if (Fn->getDeclName().isIdentifier() && Fn->getName().endswith("_cmdHandler"))
       for (unsigned I = 2; I < Fn->getNumParams(); ++I)
         Tainted[Fn->getParamDecl(I)] = "command argument " + Fn->getParamDecl(I)->getNameAsString();
@@ -275,9 +288,12 @@ public:
         if (B->getOpcode() != BO_Assign)
           continue;
         const auto *V = dyn_cast_or_null<VarDecl>(accessedDecl(B->getLHS()->IgnoreParenImpCasts()));
-        if (!V || Tainted.count(V) || !V->isLocalVarDeclOrParm())
+        if (!V || !V->isLocalVarDeclOrParm())
           continue;
-        if (auto What = valueSource(B->getRHS(), Tainted)) {
+        auto What = valueSource(B->getRHS(), Tainted);
+        if (!What && Tainted.count(V) && !Killed.count(V))
+          Killed[V] = B->getBeginLoc();
+        if (What && !Tainted.count(V)) {
           Tainted[V] = *What;
           Changed = true;
         }
@@ -291,9 +307,9 @@ public:
       if (!Loc.isMacroID() || !isAssertMacro(Lexer::getImmediateMacroNameForDiagnostics(Loc, SM, R.Context->getLangOpts())))
         continue;
       const Expr *Asserted = assertedCondition(C);
-      if (!Asserted)
+      if (!Asserted || enclosingFunction(C, *R.Context) != Fn)
         continue;
-      auto What = sourceOf(Asserted, Tainted);
+      auto What = sourceOf(Asserted, Tainted, Killed, SM);
       if (!What)
         continue;
       SourceLocation Expansion = SM.getExpansionLoc(Loc);
@@ -319,6 +335,8 @@ private:
     E = E->IgnoreParenImpCasts();
     if (const auto *Cast = dyn_cast<ExplicitCastExpr>(E))
       return valueSource(Cast->getSubExpr(), Tainted);
+    if (const auto *U = dyn_cast<UnaryOperator>(E); U && U->getOpcode() == UO_AddrOf)
+      return valueSource(U->getSubExpr(), Tainted);
     if (const ValueDecl *V = accessedDecl(E))
       if (auto It = Tainted.find(V); It != Tainted.end())
         return It->second;
@@ -327,13 +345,19 @@ private:
         return std::string("parameter value from ") + F->getNameAsString();
     return llvm::None;
   }
-  static llvm::Optional<std::string> sourceOf(const Expr *E, const std::map<const ValueDecl *, std::string> &Tainted) {
+  static llvm::Optional<std::string> sourceOf(const Expr *E, const std::map<const ValueDecl *, std::string> &Tainted,
+                                              const std::map<const ValueDecl *, SourceLocation> &Killed,
+                                              const SourceManager &SM) {
     llvm::SmallVector<const Expr *, 16> Exprs;
     collect<Expr>(E, Exprs);
     for (const Expr *X : Exprs) {
       if (const ValueDecl *V = accessedDecl(X))
-        if (auto It = Tainted.find(V); It != Tainted.end())
+        if (auto It = Tainted.find(V); It != Tainted.end()) {
+          auto K = Killed.find(V);
+          if (K != Killed.end() && SM.isBeforeInTranslationUnit(K->second, SM.getExpansionLoc(X->getBeginLoc())))
+            continue;
           return It->second;
+        }
       if (const auto *C = dyn_cast<CallExpr>(X))
         if (const FunctionDecl *F = C->getDirectCallee(); F && F->getDeclName().isIdentifier() && F->getName().startswith("paramGet_"))
           return std::string("parameter value from ") + F->getNameAsString();

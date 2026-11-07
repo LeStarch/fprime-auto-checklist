@@ -224,10 +224,16 @@ public:
 
 private:
   static bool isIteratorCrement(const CallExpr *Call, const std::set<const ValueDecl *> &CondVars) {
-    const auto *OC = dyn_cast<CXXOperatorCallExpr>(Call);
-    if (!OC || (OC->getOperator() != OO_PlusPlus && OC->getOperator() != OO_MinusMinus) || OC->getNumArgs() == 0)
+    const FunctionDecl *Callee = Call->getDirectCallee();
+    if (!Callee || !Callee->isOverloadedOperator() ||
+        (Callee->getOverloadedOperator() != OO_PlusPlus && Callee->getOverloadedOperator() != OO_MinusMinus))
       return false;
-    const ValueDecl *V = accessedDecl(OC->getArg(0)->IgnoreParenImpCasts());
+    const Expr *Recv = nullptr;
+    if (const auto *MC = dyn_cast<CXXMemberCallExpr>(Call))
+      Recv = MC->getImplicitObjectArgument(); // explicit `it.operator++()` (CodeQL getQualifier)
+    else if (Call->getNumArgs() > 0)
+      Recv = Call->getArg(0);
+    const ValueDecl *V = Recv ? accessedDecl(Recv->IgnoreParenImpCasts()) : nullptr;
     return V && CondVars.count(V);
   }
   static const ValueDecl *mutatedVariable(const Expr *E) {
@@ -562,8 +568,11 @@ public:
     if (!Substituted && !T->isFunctionPointerType() && !T->isFunctionType() && !T->isFunctionReferenceType() &&
         !T->isMemberFunctionPointerType())
       return;
+    // CodeQL oracle: a const *variable* loses its const on access (params, globals, locals are
+    // all reported); only a const-qualified field access is exempt.
     if (T.isConstQualified())
-      return;
+      if (const auto *ME = dyn_cast<MemberExpr>(Callee->IgnoreParenImpCasts()); ME && isa<FieldDecl>(ME->getMemberDecl()))
+        return;
     diag(Call->getBeginLoc(), "This call does not go through a const function pointer.");
   }
 };
