@@ -110,8 +110,8 @@ private:
         return false;
       if (const auto *VD = Parents[0].get<VarDecl>())
         return !VD->isLocalVarDeclOrParm() || VD->isConstexpr() || VD->getType().isConstQualified();
-      if (Parents[0].get<EnumConstantDecl>())
-        return true;
+      if (Parents[0].get<EnumConstantDecl>() || Parents[0].get<FieldDecl>())
+        return true; // enumerator or in-class member initializer: not a local-scope variable
       if (Parents[0].get<Decl>())
         return false;
       Cur = Parents[0];
@@ -279,10 +279,8 @@ public:
         if (Fn && Fn->isOverloadedOperator() &&
             (Fn->getOverloadedOperator() == OO_PlusPlus || Fn->getOverloadedOperator() == OO_MinusMinus))
           return;
-        // One report per parameter: prefer the definition's ParmVarDecl when the TU has it.
-        if (Fn && !Fn->doesThisDeclarationHaveABody() && Fn->getDefinition())
-          return;
-        if (!Fn)
+        // One report per parameter, at the definition (CodeQL's Parameter is one entity).
+        if (!Fn || !Fn->doesThisDeclarationHaveABody())
           return;
       }
     }
@@ -541,11 +539,16 @@ class NonConstFunctionPointerCheck : public ClangTidyCheck {
 public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
-    F->addMatcher(callExpr(unless(cxxMemberCallExpr()), unless(cxxOperatorCallExpr()), unless(isTypeDependent())).bind("call"), this);
+    F->addMatcher(callExpr(unless(cxxOperatorCallExpr()), unless(isTypeDependent())).bind("call"), this);
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Call = R.Nodes.getNodeAs<CallExpr>("call");
     const Expr *Callee = Call->getCallee()->IgnoreParenImpCasts();
+    if (isa<CXXMemberCallExpr>(Call)) {
+      const auto *BO = dyn_cast<BinaryOperator>(Callee);
+      if (!BO || !BO->isPtrMemOp())
+        return; // ordinary member call
+    }
     // A function-pointer template argument is still a call through a pointer in the instantiation.
     bool Substituted = isa<SubstNonTypeTemplateParmExpr>(Call->getCallee()->IgnoreParens()) ||
                        isa<SubstNonTypeTemplateParmExpr>(Callee);

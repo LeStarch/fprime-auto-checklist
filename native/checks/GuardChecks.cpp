@@ -51,6 +51,8 @@ public:
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Op = R.Nodes.getNodeAs<BinaryOperator>("op");
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
+    if (Op->isInstantiationDependent())
+      return; // judged in the instantiations
     const Expr *Divisor = Op->getRHS();
     bool IsFloat = Divisor->getType()->isFloatingType() || Op->getLHS()->getType()->isFloatingType();
     if (IsFloat != Floating)
@@ -91,7 +93,7 @@ public:
   void check(const MatchFinder::MatchResult &R) override {
     const auto *AE = R.Nodes.getNodeAs<ArraySubscriptExpr>("ae");
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
-    if (inTestPath(pathOf(AE, *R.SourceManager)))
+    if (AE->isInstantiationDependent() || inTestPath(pathOf(AE, *R.SourceManager)))
       return;
     const Expr *Idx = AE->getIdx();
     const ValueDecl *V = accessedDecl(Idx->IgnoreParenImpCasts());
@@ -116,7 +118,7 @@ public:
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Op = R.Nodes.getNodeAs<BinaryOperator>("op");
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
-    if (inTestPath(pathOf(Op, *R.SourceManager)))
+    if (Op->isInstantiationDependent() || inTestPath(pathOf(Op, *R.SourceManager)))
       return;
     QualType T = Op->getType();
     if (!T->isSignedIntegerType() || T->isEnumeralType())
@@ -124,8 +126,6 @@ public:
     const Expr *L = Op->getLHS()->IgnoreParenImpCasts();
     const Expr *Rr = Op->getRHS()->IgnoreParenImpCasts();
     if (isa<IntegerLiteral>(L) || isa<IntegerLiteral>(Rr) || isa<CharacterLiteral>(L) || isa<CharacterLiteral>(Rr))
-      return;
-    if (isConstantValue(Op, *R.Context))
       return;
     // Range-analysis shortcut: the operation can only overflow when some operand is unbounded.
     uint64_t Width = R.Context->getTypeSize(T);
@@ -140,15 +140,26 @@ public:
   }
 
 private:
-  // Constant, promoted from a narrower type, or a conditional of bounded arms.
+  // Mirrors what CodeQL's range analysis can bound: literals, enumerators and sizeof (but not
+  // const variables), values promoted or cast from a narrower type, conditionals and arithmetic
+  // of bounded operands.
   static bool bounded(const Expr *E, uint64_t Width, bool Mul, ASTContext &Ctx) {
-    E = E->IgnoreParens();
-    if (isConstantValue(E, Ctx))
+    E = E->IgnoreParenImpCasts();
+    if (isa<IntegerLiteral>(E) || isa<CharacterLiteral>(E) || isa<CXXBoolLiteralExpr>(E) ||
+        isa<UnaryExprOrTypeTraitExpr>(E))
       return true;
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+      return isa<EnumConstantDecl>(DRE->getDecl());
     if (const auto *C = dyn_cast<ConditionalOperator>(E))
       return bounded(C->getTrueExpr(), Width, Mul, Ctx) && bounded(C->getFalseExpr(), Width, Mul, Ctx);
-    const Expr *Inner = E->IgnoreParenImpCasts();
-    uint64_t W = Ctx.getTypeSize(Inner->getType());
+    if (const auto *B = dyn_cast<BinaryOperator>(E))
+      if (B->getOpcode() == BO_Add || B->getOpcode() == BO_Sub || B->getOpcode() == BO_Mul)
+        return bounded(B->getLHS(), Width, Mul, Ctx) && bounded(B->getRHS(), Width, Mul, Ctx);
+    if (const auto *Cast = dyn_cast<ExplicitCastExpr>(E))
+      if (!Cast->getSubExpr()->getType()->isPointerType())
+        return bounded(Cast->getSubExpr(), Width, Mul, Ctx) ||
+               Ctx.getTypeSize(Cast->getSubExpr()->getType()) < Width;
+    uint64_t W = Ctx.getTypeSize(E->getType());
     return Mul ? W * 2 < Width : W < Width;
   }
   static bool operandGuarded(const Expr *Operand, const Stmt *Use, const FunctionDecl *Fn, ASTContext &Ctx) {
@@ -245,7 +256,7 @@ public:
     const auto *Call = R.Nodes.getNodeAs<CallExpr>("call");
     const auto *Callee = R.Nodes.getNodeAs<FunctionDecl>("callee");
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
-    if (Callee->getType()->isDependentType() || Callee->getReturnType()->isVoidType())
+    if (Call->isInstantiationDependent() || Callee->getType()->isDependentType() || Callee->getReturnType()->isVoidType())
       return;
     if (whitelisted(Callee))
       return;
@@ -257,7 +268,7 @@ public:
     }
     const VarDecl *Stored = storedInto(Call, Parent);
     if (Stored && !isa<ParmVarDecl>(Stored) && !Stored->getType()->isReferenceType() && !Stored->isConstexpr() &&
-        !readLater(Stored, Call, Fn->getBody()))
+        !readLater(Stored, Call, Fn->getBody(), *R.SourceManager))
       diag(Call->getBeginLoc(), "%0's return value is stored but not checked.") << Name;
   }
 
@@ -337,12 +348,12 @@ private:
     // Initialisers are wrapped in implicit casts: look through them.
     return nullptr;
   }
-  static bool readLater(const VarDecl *V, const Stmt *Def, const Stmt *Body) {
+  static bool readLater(const VarDecl *V, const Stmt *Def, const Stmt *Body, const SourceManager &SM) {
     llvm::SmallVector<const DeclRefExpr *, 8> Refs;
     collect<DeclRefExpr>(Body, Refs);
-    SourceLocation DefLoc = Def->getBeginLoc();
+    SourceLocation DefLoc = SM.getExpansionLoc(Def->getBeginLoc());
     for (const DeclRefExpr *Ref : Refs)
-      if (Ref->getDecl() == V && Ref->getBeginLoc() != DefLoc && Ref->getBeginLoc().getRawEncoding() > DefLoc.getRawEncoding())
+      if (Ref->getDecl() == V && SM.isBeforeInTranslationUnit(DefLoc, SM.getExpansionLoc(Ref->getBeginLoc())))
         return true;
     return false;
   }
@@ -373,7 +384,7 @@ public:
     }
     if (markedNonTerminating(Loop, *R.SourceManager, R.Context->getLangOpts()))
       return;
-    if (Cond && isConstantValue(Cond, *R.Context))
+    if (Cond && (Cond->isInstantiationDependent() || isConstantValue(Cond, *R.Context)))
       return;
     llvm::SmallVector<const BinaryOperator *, 4> Rels;
     collect<BinaryOperator>(Cond, Rels);

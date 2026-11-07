@@ -184,7 +184,7 @@ public:
   void registerMatchers(MatchFinder *F) override { F->addMatcher(assertion(), this); }
   void check(const MatchFinder::MatchResult &R) override {
     const Expr *Asserted = assertedCondition(R.Nodes.getNodeAs<ConditionalOperator>("assert"));
-    if (!Asserted)
+    if (!Asserted || Asserted->isInstantiationDependent())
       return;
     if (exprIsSideEffecting(Asserted))
       diag(Asserted->getBeginLoc(), "Assertions should not have side effects.");
