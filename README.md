@@ -91,6 +91,39 @@ python3 -m fprime_auto_checklist.checks.check_sdd_port_table --module Svc/X
 CodeQL results in autocoded files (`build-fprime-*/…Ac.cpp`) are set aside and
 counted in the header, not charged to the component.
 
+## clang-tidy mode (no CodeQL, no network)
+
+The same `cpp/fprime/*` rules are available as native clang-tidy checks
+(`native/`, loaded with `clang-tidy --load`), for projects that cannot use the
+CodeQL CLI (closed source without GHAS) or must run fully offline:
+
+```bash
+cmake -S native -B native/build -DClang_DIR=/usr/lib/llvm-15/lib/cmake/clang && cmake --build native/build
+fprime-util generate -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && fprime-util build
+fprime-auto-checklist run --analyzer clang-tidy --module Svc/MyComponent -o MyComponent-checklist.md
+```
+
+`--analyzer clang-tidy` runs the plugin over the module's translation units
+from `compile_commands.json` (`--compile-commands` to point elsewhere;
+`--clang-tidy`/`--tidy-plugin` or `$CLANG_TIDY`/`$FPRIME_TIDY_PLUGIN` to pick
+the binaries) and writes `checklist.sarif` with CodeQL's rule ids
+(`cpp/fprime/<rule>`), one result per finding and content-based
+`partialFingerprints`, so the SARIF can be uploaded to code scanning and
+individual alerts dismissed through the GitHub API exactly as today.  Nothing
+in this mode contacts the network; wrap it in `unshare -rn`/`--network none`
+for belt-and-braces.  The plugin must be loaded by the clang-tidy of the LLVM
+major it was built against (15 tested).
+
+Convergence with CodeQL is tested two ways: `tests/test_convergence.py` runs
+every vendored CodeQL fixture (`codeql/fprime-queries-tests/*/test.cpp`)
+through the matching check and requires the same flagged lines (43/43), and
+`tools/compare_sarif.py codeql.sarif clang-tidy.sarif --common-rules` diffs
+two full runs finding by finding.  On nasa/fprime the two engines agree on
+~81% of findings; the residue is CodeQL's global call-graph purity analysis
+(`no-boolean-side-effects`), its range analysis (`signed-overflow`),
+cross-translation-unit deferred command responses, and CodeQL's reporting of
+template-instantiation literals at the template's line (`magic-numbers`).
+
 ## CodeQL licensing
 
 The CodeQL CLI is distributed under the
@@ -128,7 +161,9 @@ carries a placeholder commit id, which check C2 (5.3) rightly rejects inside a
 real repository (the tests do this via `_copy_widget`).
 
 Layout: `src/fprime_auto_checklist/checklist.py` (items + evidence map),
-`codeql.py` (license gate, CLI driver, SARIF scoping), `runner.py` (check
+`codeql.py` (license gate, CLI driver, SARIF scoping), `clang_tidy.py`
+(plugin driver, SARIF conversion), `native/` (the clang-tidy checks and their
+fixture oracle `native/test/run_fixtures.py`), `runner.py` (check
 orchestration), `results.py` (verdict composition), `render.py`, `cli.py`;
 vendored code under `queries/` and `checks/` (see `VENDORED.md`, `NOTICE`).
 
