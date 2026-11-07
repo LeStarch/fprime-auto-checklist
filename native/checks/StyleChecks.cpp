@@ -300,7 +300,7 @@ public:
       const auto *Fn = dyn_cast_or_null<FunctionDecl>(V->getDeclContext());
       if (Fn && Fn->isTemplateInstantiation())
         return;
-      if (const auto *P = dyn_cast<ParmVarDecl>(V)) {
+      if (isa<ParmVarDecl>(V)) {
         if (Fn && Fn->isOverloadedOperator() &&
             (Fn->getOverloadedOperator() == OO_PlusPlus || Fn->getOverloadedOperator() == OO_MinusMinus))
           return;
@@ -591,11 +591,22 @@ public:
     if (!Substituted && !T->isFunctionPointerType() && !T->isFunctionType() && !T->isFunctionReferenceType() &&
         !T->isMemberFunctionPointerType())
       return;
-    // CodeQL oracle: a const *variable* loses its const on access (params, globals, locals are
-    // all reported); only a const-qualified field access is exempt.
-    if (T.isConstQualified())
-      if (const auto *ME = dyn_cast<MemberExpr>(Callee->IgnoreParenImpCasts()); ME && isa<FieldDecl>(ME->getMemberDecl()))
-        return;
+    // The call goes through a const pointer when the pointer-valued expression (below
+    // parentheses, implicit conversions and dereferences) is const-qualified: `cp(1)`,
+    // `(*cp)(1)`, `table[0](1)` with a const element, a const field.  CodeQL drops the qualifier
+    // of const variables on access and reports them; that is a CodeQL defect we do not mirror.
+    const Expr *Ptr = Callee;
+    if (const auto *BO = dyn_cast<BinaryOperator>(Callee); BO && BO->isPtrMemOp())
+      Ptr = BO->getRHS();
+    for (;;) {
+      Ptr = Ptr->IgnoreParenImpCasts();
+      const auto *UO = dyn_cast<UnaryOperator>(Ptr);
+      if (!UO || UO->getOpcode() != UO_Deref)
+        break;
+      Ptr = UO->getSubExpr();
+    }
+    if (T.isConstQualified() || Ptr->getType().isConstQualified())
+      return;
     diag(Call->getBeginLoc(), "This call does not go through a const function pointer.");
   }
 };

@@ -1,0 +1,4 @@
+# Deliberate divergences from the CodeQL oracle (CodeQL is wrong here).
+# -N reason: CodeQL reports line N, this port does not.  +N reason: the reverse.
+-23 `if (ctx > 3 && m_count)` reads component state; CodeQL misses field reads inside `&&`/`||` conditions
+-24 `switch (m_count)` gates on component state as the query text intends; CodeQL misses switch expressions

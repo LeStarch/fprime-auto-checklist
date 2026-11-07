@@ -234,14 +234,16 @@ private:
       const Stmt *P = Parents[0].get<Stmt>();
       if (!P)
         return false;
-      // Empirically (CodeQL oracle): only an `if` whose whole condition is one expression
-      // gates; `a && b` / `a || b` conditions and `switch` expressions do not.
+      // An `if` or `switch` whose condition reads a field gates the event on component state
+      // (the query's stated intent).  CodeQL's extractor misses `a && b` conditions and switch
+      // expressions here; that is a CodeQL defect we deliberately do not mirror.
       const Expr *Cond = nullptr;
       if (const auto *If = dyn_cast<IfStmt>(P))
-        Cond = containsStmt(If->getCond(), Call) ? nullptr : If->getCond();
-      if (Cond)
-        if (const auto *BO = dyn_cast<BinaryOperator>(Cond->IgnoreParenImpCasts()); BO && BO->isLogicalOp())
-          Cond = nullptr;
+        Cond = If->getCond();
+      else if (const auto *Sw = dyn_cast<SwitchStmt>(P))
+        Cond = Sw->getCond();
+      if (Cond && containsStmt(Cond, Call))
+        Cond = nullptr;
       if (Cond) {
         llvm::SmallVector<const MemberExpr *, 4> Fields;
         collect<MemberExpr>(Cond, Fields);

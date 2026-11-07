@@ -123,10 +123,15 @@ lambdas, explicit casts, labels, `do`/`while`, ternaries, references aliasing
 guarded values — whose `.expected` CodeQL itself produced via
 `native/test/adversarial.py learn`; 43/43); and
 `tools/compare_sarif.py codeql.sarif clang-tidy.sarif --common-rules` diffs
-two full runs finding by finding.  Where CodeQL's behaviour is surprising
-(`[[fallthrough]];` reported as unannotated, `#define ONE() 1` as a numeric
-constant, const function-pointer *variables* reported but const fields exempt)
-the checks mirror CodeQL for parity rather than endorse the policy.  On nasa/fprime the two engines agree on
+two full runs finding by finding.  Where CodeQL is wrong the port does not
+mirror it: each such case is listed in the fixture's `divergence.txt`
+(`-line reason` for a CodeQL false positive, `+line reason` for a false
+negative) and the oracle applies it, so the CodeQL-generated `.expected` stays
+untouched and a stale entry fails the test.  Current divergences:
+`[[fallthrough]];` is a fall-through annotation; `#define ONE() 1` is a
+function-like macro, not a constant; a call through a const-qualified
+function-pointer *variable* is a const call; an `if`/`switch` whose condition
+reads a field gates a cyclic event even inside `&&`/`||`.  On nasa/fprime the two engines agree on
 ~81% of findings; the residue is CodeQL's global call-graph purity analysis
 (`no-boolean-side-effects`), its range analysis (`signed-overflow`),
 cross-translation-unit deferred command responses, and CodeQL's reporting of

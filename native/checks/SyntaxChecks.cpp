@@ -1,6 +1,7 @@
 // Structural (AST-only) checks ported from the fprime CodeQL queries.
 #include "FprimeChecks.h"
 
+#include "clang/AST/Attr.h"
 #include "clang/AST/ParentMapContext.h"
 #include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
@@ -78,6 +79,11 @@ public:
       bool IsLast = J >= Stmts.size();
       if (!Last || IsLast || transfersControl(Last))
         continue;
+      // `[[fallthrough]];` is the standard annotation; CodeQL only recognises comments
+      // (a CodeQL defect we deliberately do not mirror).
+      if (const auto *AS = dyn_cast<AttributedStmt>(Last);
+          AS && llvm::any_of(AS->getAttrs(), [](const Attr *A) { return isa<FallThroughAttr>(A); }))
+        continue;
       if (hasFallthroughComment(Last, Stmts[J], *R.SourceManager, R.Context->getLangOpts()))
         continue;
       diag(Case->getBeginLoc(),
@@ -112,8 +118,8 @@ private:
     SourceLocation To = SM.translateLineCol(FID, EndLine + 1, 1);
     if (From.isInvalid() || To.isInvalid())
       return false;
-    // Only comments count (CodeQL's Comment class): re-lex the lines and test comment tokens,
-    // so `[[fallthrough]]` or an identifier containing "fallthrough" is not an annotation.
+    // Only comments count here: re-lex the lines and test comment tokens, so an identifier
+    // containing "fallthrough" is not an annotation (the attribute is handled by the caller).
     StringRef Buf = SM.getBufferData(FID);
     Lexer Raw(SM.getLocForStartOfFile(FID), LO, Buf.begin(), Buf.data() + SM.getFileOffset(From), Buf.end());
     Raw.SetCommentRetentionState(true);
@@ -456,6 +462,10 @@ class DefineConstantCheck : public ClangTidyCheck {
     void MacroDefined(const Token &Name, const MacroDirective *MD) override {
       const MacroInfo *MI = MD->getMacroInfo();
       if (!MI || MI->isBuiltinMacro() || !fromSource(MI->getDefinitionLoc(), SM))
+        return;
+      // `#define F() 1` is a function-like macro, not a constant definition; CodeQL's body regex
+      // reports it anyway (a CodeQL defect we deliberately do not mirror).
+      if (MI->isFunctionLike())
         return;
       StringRef Path = SM.getFilename(MI->getDefinitionLoc());
       if (Path.empty() || Path.startswith("<")) // -D on the command line, <built-in>

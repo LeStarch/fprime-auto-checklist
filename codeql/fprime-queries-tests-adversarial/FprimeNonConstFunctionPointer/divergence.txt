@@ -1,0 +1,11 @@
+# Deliberate divergences from the CodeQL oracle (CodeQL is wrong here).
+# -N reason: CodeQL reports line N, this port does not.  +N reason: the reverse.
+-17 call through a const-qualified function pointer (const parameter); CodeQL drops the qualifier on variable access
+-18 call through a const-qualified function pointer (const parameter); CodeQL drops the qualifier on variable access
+-20 call through a const-qualified function pointer (const reference parameter); CodeQL drops the qualifier on variable access
+-22 call through a const-qualified function pointer (dereferenced const parameter); CodeQL drops the qualifier on variable access
+-24 call through a const-qualified function pointer (const global); CodeQL drops the qualifier on variable access
+-25 call through a const-qualified function pointer (const global); CodeQL drops the qualifier on variable access
+-26 call through a const-qualified function pointer (const global); CodeQL drops the qualifier on variable access
+-28 call through a const-qualified function pointer (const array element); CodeQL drops the qualifier on variable access
+-44 call through a const-qualified function pointer (const local); CodeQL drops the qualifier on variable access

@@ -1,0 +1,4 @@
+# Deliberate divergences from the CodeQL oracle (CodeQL is wrong here).
+# -N reason: CodeQL reports line N, this port does not.  +N reason: the reverse.
+-16 `#define FN() 1` is a function-like macro, not a constant definition
+-17 `#define FN2(x) 1` is a function-like macro, not a constant definition

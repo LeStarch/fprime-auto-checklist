@@ -71,3 +71,38 @@ def test_plugin_lists_every_ported_check():
     available = set(re.findall(r"^\s+(fprime-[\w-]+)$", listed, re.M))
     wanted = {r.check for r in ct.rules() if r.check}
     assert wanted <= available, sorted(wanted - available)
+
+
+def _fixture_with_divergence(tmp_path, expected_lines, divergence):
+    query = tmp_path / "FprimeExample"
+    query.mkdir()
+    (query / "FprimeExample.expected").write_text(
+        "".join(f"| test.cpp:{n}:1:{n}:5 | x | msg |\n" for n in expected_lines), encoding="utf-8"
+    )
+    (query / "divergence.txt").write_text(divergence, encoding="utf-8")
+    return query
+
+
+def test_divergence_file_adjusts_codeql_expected_lines(tmp_path):
+    query = _fixture_with_divergence(
+        tmp_path,
+        [3, 7, 9],
+        "# comment line\n-7 CodeQL false positive\n+12 CodeQL false negative\nnot an entry\n",
+    )
+    assert _oracle().expected_lines(query) == {3, 9, 12}
+
+
+@pytest.mark.parametrize("divergence", ["-8 CodeQL no longer reports this\n", "+7 CodeQL now reports this\n"])
+def test_stale_divergence_entry_is_an_error(tmp_path, divergence):
+    query = _fixture_with_divergence(tmp_path, [3, 7], divergence)
+    with pytest.raises(ValueError, match="stale entry"):
+        _oracle().expected_lines(query)
+
+
+def test_every_divergence_file_has_a_reason():
+    for root in TIERS.values():
+        for divergence in root.glob("*/divergence.txt"):
+            entries = [r for r in divergence.read_text(encoding="utf-8").splitlines() if r[:1] in "+-"]
+            assert entries, f"{divergence}: no entries"
+            for row in entries:
+                assert _oracle()._DIVERGENCE.match(row), f"{divergence}: malformed {row!r}"

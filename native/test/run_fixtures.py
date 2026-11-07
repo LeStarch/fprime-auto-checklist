@@ -40,12 +40,33 @@ def check_name(rule: str) -> str:
     return "fprime-" + rule.split("/")[-1]
 
 
+_DIVERGENCE = re.compile(r"^([-+])(\d+)\s+\S")
+
+
 def expected_lines(query_dir: Path) -> set[int]:
+    """Lines the CodeQL oracle flags, adjusted by the fixture's documented divergences.
+
+    ``<query_dir>/divergence.txt`` records where the port deliberately differs from CodeQL
+    because CodeQL is wrong: ``-N reason`` drops a line CodeQL reports (CodeQL false positive),
+    ``+N reason`` adds one it misses (CodeQL false negative).  A stale entry (dropping a line
+    CodeQL no longer reports, or adding one it now reports) is an error so the file cannot
+    silently mask a real divergence.
+    """
     lines = set()
     for row in (query_dir / f"{query_dir.name}.expected").read_text(encoding="utf-8").splitlines():
         m = _EXPECTED.match(row)
         if m:
             lines.add(int(m.group(1)))
+    divergence = query_dir / "divergence.txt"
+    if divergence.exists():
+        for row in divergence.read_text(encoding="utf-8").splitlines():
+            m = _DIVERGENCE.match(row)
+            if not m:
+                continue
+            sign, line = m.group(1), int(m.group(2))
+            if (line in lines) != (sign == "-"):
+                raise ValueError(f"{divergence}: stale entry {row!r} (CodeQL expected {sorted(lines)})")
+            (lines.discard if sign == "-" else lines.add)(line)
     return lines
 
 
