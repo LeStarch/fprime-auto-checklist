@@ -114,11 +114,19 @@ in this mode contacts the network; wrap it in `unshare -rn`/`--network none`
 for belt-and-braces.  The plugin must be loaded by the clang-tidy of the LLVM
 major it was built against (15 tested).
 
-Convergence with CodeQL is tested two ways: `tests/test_convergence.py` runs
+Convergence with CodeQL is tested three ways: `tests/test_convergence.py` runs
 every vendored CodeQL fixture (`codeql/fprime-queries-tests/*/test.cpp`)
-through the matching check and requires the same flagged lines (43/43), and
+through the matching check and requires the same flagged lines (43/43); the
+same test runs the adversarial tier (`codeql/fprime-queries-tests-adversarial/`,
+hand-written inputs per check — macros wrapping the construct, templates,
+lambdas, explicit casts, labels, `do`/`while`, ternaries, references aliasing
+guarded values — whose `.expected` CodeQL itself produced via
+`native/test/adversarial.py learn`; 43/43); and
 `tools/compare_sarif.py codeql.sarif clang-tidy.sarif --common-rules` diffs
-two full runs finding by finding.  On nasa/fprime the two engines agree on
+two full runs finding by finding.  Where CodeQL's behaviour is surprising
+(`[[fallthrough]];` reported as unannotated, `#define ONE() 1` as a numeric
+constant, const function-pointer *variables* reported but const fields exempt)
+the checks mirror CodeQL for parity rather than endorse the policy.  On nasa/fprime the two engines agree on
 ~81% of findings; the residue is CodeQL's global call-graph purity analysis
 (`no-boolean-side-effects`), its range analysis (`signed-overflow`),
 cross-translation-unit deferred command responses, and CodeQL's reporting of

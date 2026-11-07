@@ -1,8 +1,11 @@
-"""Convergence: the clang-tidy plugin must flag exactly the lines CodeQL flags on every vendored fixture.
+"""Convergence: the clang-tidy plugin must flag exactly the lines CodeQL flags on every fixture.
 
-Each ``codeql/fprime-queries-tests/<Query>/`` holds the ``test.cpp`` the CodeQL
-query is tested against and the ``.expected`` CodeQL output.  Running the
-ported ``fprime-<rule>`` check on the same file must report the same lines.
+Two tiers share one oracle format.  ``codeql/fprime-queries-tests/<Query>/`` is
+the vendored nasa/fprime fixture (CodeQL's own happy-path cases);
+``codeql/fprime-queries-tests-adversarial/<Query>/`` holds hand-written
+adversarial inputs (macros, templates, lambdas, casts, labels, do/while, ...)
+whose ``.expected`` was produced by CodeQL itself via ``native/test/adversarial.py learn``.
+Running the ported ``fprime-<rule>`` check on each ``test.cpp`` must report the same lines.
 Skipped when the plugin is not built or clang-tidy is unavailable; the native
 build is required for the clang-tidy mode anyway.
 """
@@ -16,7 +19,11 @@ import pytest
 from fprime_auto_checklist import clang_tidy as ct
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "codeql" / "fprime-queries-tests"
+TIERS = {
+    "codeql": ROOT / "codeql" / "fprime-queries-tests",
+    "adversarial": ROOT / "codeql" / "fprime-queries-tests-adversarial",
+}
+FIXTURES = TIERS["codeql"]
 
 
 def _oracle():
@@ -35,17 +42,22 @@ def _tooling():
     return tidy, plugin
 
 
-@pytest.mark.parametrize("fixture", sorted(p.name for p in FIXTURES.iterdir() if p.is_dir()))
-def test_clang_tidy_matches_codeql_expected(fixture):
+@pytest.mark.parametrize(
+    "tier, fixture",
+    [(tier, p.name) for tier, root in TIERS.items() for p in sorted(root.iterdir()) if p.is_dir()],
+    ids=lambda v: v if v in TIERS else v,
+)
+def test_clang_tidy_matches_codeql_expected(tier, fixture):
     tidy, plugin = _tooling()
     oracle = _oracle()
-    query_dir = FIXTURES / fixture
+    query_dir = TIERS[tier] / fixture
+    assert (query_dir / f"{fixture}.expected").exists(), f"{tier}/{fixture}: run native/test/adversarial.py learn"
     rule = oracle.rule_id(query_dir)
     check = oracle.check_name(rule)
     assert check in ct.check_to_rule(ct.rules()), f"{check} not registered for {rule}"
     diags = oracle.run_clang_tidy(tidy, plugin, check, query_dir / "test.cpp", [])
     got = {int(d["line"]) for d in diags if Path(d["file"]).name == "test.cpp"}
-    assert got == oracle.expected_lines(query_dir), f"{fixture}: clang-tidy {sorted(got)} vs CodeQL expected"
+    assert got == oracle.expected_lines(query_dir), f"{tier}/{fixture}: clang-tidy {sorted(got)} vs CodeQL expected"
 
 
 def test_plugin_lists_every_ported_check():

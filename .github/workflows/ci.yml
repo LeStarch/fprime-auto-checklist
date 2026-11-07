@@ -22,7 +22,7 @@ jobs:
       - run: python -m pytest -q
   native:
     # Builds the clang-tidy plugin against the LLVM major it is pinned to and runs the CodeQL
-    # fixture convergence suite (tests/test_convergence.py skips without the plugin).
+    # fixture convergence suites, vendored and adversarial (tests/test_convergence.py skips without the plugin).
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -33,4 +33,5 @@ jobs:
       - run: cmake -S native -B native/build -G Ninja -DClang_DIR=/usr/lib/llvm-15/lib/cmake/clang -DCMAKE_BUILD_TYPE=Release && cmake --build native/build
       - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
       - run: python3 native/test/run_fixtures.py --clang-tidy /usr/lib/llvm-15/bin/clang-tidy
+      - run: python3 native/test/adversarial.py check --clang-tidy /usr/lib/llvm-15/bin/clang-tidy
       - run: CLANG_TIDY=/usr/lib/llvm-15/bin/clang-tidy python -m pytest -q tests/test_convergence.py tests/test_clang_tidy.py
