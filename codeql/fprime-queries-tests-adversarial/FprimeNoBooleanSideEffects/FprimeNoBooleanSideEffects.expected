@@ -1,0 +1,21 @@
+| test.cpp:32:7:32:9 | ... ++ | This Boolean expression is not side-effect free. |
+| test.cpp:33:7:33:11 | ... = ... | This Boolean expression is not side-effect free. |
+| test.cpp:35:7:35:18 | call to impureGlobal | This Boolean expression is not side-effect free. |
+| test.cpp:37:7:37:17 | call to callsImpure | This Boolean expression is not side-effect free. |
+| test.cpp:53:7:53:13 | call to deletes | This Boolean expression is not side-effect free. |
+| test.cpp:55:7:55:11 | call to expression | This Boolean expression is not side-effect free. |
+| test.cpp:57:7:57:16 | call to tmplImpure | This Boolean expression is not side-effect free. |
+| test.cpp:58:10:58:16 | ... > ... | This Boolean expression is not side-effect free. |
+| test.cpp:60:10:60:21 | call to impureGlobal | This Boolean expression is not side-effect free. |
+| test.cpp:62:19:62:30 | call to impureGlobal | This Boolean expression is not side-effect free. |
+| test.cpp:63:17:63:19 | ... -- | This Boolean expression is not side-effect free. |
+| test.cpp:66:11:66:22 | call to impureGlobal | This Boolean expression is not side-effect free. |
+| test.cpp:68:7:68:32 | ... && ... | This Boolean expression is not side-effect free. |
+| test.cpp:69:7:69:20 | ... \|\| ... | This Boolean expression is not side-effect free. |
+| test.cpp:70:7:70:22 | ! ... | This Boolean expression is not side-effect free. |
+| test.cpp:71:8:71:12 | ... = ... | This Boolean expression is not side-effect free. |
+| test.cpp:72:7:72:12 | ... += ... | This Boolean expression is not side-effect free. |
+| test.cpp:73:25:73:36 | call to impureGlobal | This Boolean expression is not side-effect free. |
+| test.cpp:74:7:74:29 | sizeof(<expr>) | This Boolean expression is not side-effect free. |
+| test.cpp:76:7:76:14 | access to array | This Boolean expression is not side-effect free. |
+| test.cpp:80:27:80:38 | call to impureGlobal | This Boolean expression is not side-effect free. |

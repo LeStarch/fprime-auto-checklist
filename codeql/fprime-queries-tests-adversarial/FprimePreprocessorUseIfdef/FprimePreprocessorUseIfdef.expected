@@ -1,0 +1,14 @@
+| test.cpp:5:1:5:19 | #ifdef LOCAL_SWITCH | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:8:1:8:20 | #ifndef LOCAL_SWITCH | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:13:1:13:16 | #if LOCAL_SWITCH | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:18:1:18:29 | #if defined(FW_FOO) && FW_FOO | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:21:1:21:5 | #if 0 | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:24:1:24:5 | #if 1 | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:27:1:27:26 | #if __cplusplus >= 201103L | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:30:1:30:16 | #ifdef __linux__ | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:33:1:33:15 | #ifdef BUILD_UT | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:36:1:36:40 | #if defined(FW_FOO) \|\| defined(BUILD_UT) | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:39:1:39:23 | #ifdef UNKNOWN_EXTERNAL | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:42:1:42:20 | #ifdef LOCAL_SWITCH | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:45:1:45:19 | #ifdef LOCAL_SWITCH | Use of conditional compilation must be kept to a minimum. |
+| test.cpp:46:1:46:14 | #ifdef FW_FOO | Use of conditional compilation must be kept to a minimum. |

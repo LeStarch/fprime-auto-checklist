@@ -1,0 +1,17 @@
+typedef const int CI;
+class Plain { public: int a, b; void m(); };
+class CtorOnly { public: int a; CtorOnly(); ~CtorOnly(); };
+class StaticFnOnly { public: int a; static void s(); };
+class AssignOnly { public: int a; AssignOnly& operator=(const AssignOnly&); };
+class FriendOnly { public: int a; friend void fr(FriendOnly&); };
+class ConstMembers { public: const int c = 1; CI d = 2; static int sm; int& r; void m(); ConstMembers(int& x) : r(x) {} };
+struct AStruct { int a; void m(); };
+union U { int a; float f; void m(); };
+template <typename T> class Tmpl { public: T a; void m(); };
+Tmpl<int> ti; Tmpl<float> tf;
+class Outer { public: class Inner { public: int i; }; Inner in; void m(); };
+class Base { public: void m(); };
+class Derived : public Base { public: int d; };
+class Mixed { public: int pub; protected: int prot; private: int priv; public: void m(); };
+class ArrayMember { public: int arr[4]; const int carr[2] = {1, 2}; void m(); };
+class PointerToConst { public: const int* p; int* const q; void m(); PointerToConst(int* x) : p(x), q(x) {} };

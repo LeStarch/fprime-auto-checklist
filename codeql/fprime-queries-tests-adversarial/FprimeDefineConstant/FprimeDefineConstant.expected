@@ -1,0 +1,15 @@
+| test.cpp:1:1:1:11 | #define A 1 | Numeric constant A is defined with #define; use a typed constant. |
+| test.cpp:2:1:2:14 | #define B (-1) | Numeric constant B is defined with #define; use a typed constant. |
+| test.cpp:3:1:3:17 | #define C 1.0e-3f | Numeric constant C is defined with #define; use a typed constant. |
+| test.cpp:4:1:4:16 | #define D 0x1FUL | Numeric constant D is defined with #define; use a typed constant. |
+| test.cpp:7:1:7:12 | #define G -1 | Numeric constant G is defined with #define; use a typed constant. |
+| test.cpp:9:1:9:12 | #define I 1. | Numeric constant I is defined with #define; use a typed constant. |
+| test.cpp:11:1:11:13 | #define K 1e5 | Numeric constant K is defined with #define; use a typed constant. |
+| test.cpp:12:1:12:15 | #define L ( 1 ) | Numeric constant L is defined with #define; use a typed constant. |
+| test.cpp:16:1:16:14 | #define FN() 1 | Numeric constant FN is defined with #define; use a typed constant. |
+| test.cpp:17:1:17:16 | #define FN2(x) 1 | Numeric constant FN2 is defined with #define; use a typed constant. |
+| test.cpp:19:1:19:11 | #define Q 1 | Numeric constant Q is defined with #define; use a typed constant. |
+| test.cpp:20:1:20:11 | #define R 1 | Numeric constant R is defined with #define; use a typed constant. |
+| test.cpp:24:1:24:12 | #define V 1U | Numeric constant V is defined with #define; use a typed constant. |
+| test.cpp:26:1:26:11 | #define A 2 | Numeric constant A is defined with #define; use a typed constant. |
+| test.cpp:28:1:28:15 | #define LOCAL 3 | Numeric constant LOCAL is defined with #define; use a typed constant. |

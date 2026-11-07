@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from . import __version__
+from . import clang_tidy as ct
 from . import codeql as cq
 from .checklist import ITEMS, codeql_rule_ids
 from .render import render_json, render_markdown
@@ -50,8 +51,35 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     ci = parser.add_argument_group("CI status (C3; needs GITHUB_TOKEN)")
     ci.add_argument("--repo", default=None, help="owner/name (default: origin remote)")
     ci.add_argument("--sha", default=None, help="commit to inspect (default: HEAD)")
-    q = parser.add_argument_group("CodeQL")
-    q.add_argument("--skip-codeql", action="store_true", help="Do not run CodeQL; its items are reported UNCHECKED")
+    q = parser.add_argument_group("static analysis (CodeQL or its clang-tidy swap-in)")
+    q.add_argument(
+        "--analyzer",
+        choices=("codeql", "clang-tidy"),
+        default="codeql",
+        help="Engine for the cpp/fprime/* rules: CodeQL (default; license gated, downloads packs) or the "
+        "fprime clang-tidy plugin (offline, no license gate)",
+    )
+    q.add_argument(
+        "--skip-codeql",
+        "--skip-analysis",
+        dest="skip_codeql",
+        action="store_true",
+        help="Do not run the static analysis; its items are reported UNCHECKED",
+    )
+    q.add_argument(
+        "--clang-tidy", default=None, help="clang-tidy executable (default: $CLANG_TIDY, plugin build, PATH)"
+    )
+    q.add_argument(
+        "--tidy-plugin",
+        default=None,
+        help="fprime clang-tidy plugin .so (default: $FPRIME_TIDY_PLUGIN or native/build)",
+    )
+    q.add_argument(
+        "--compile-commands",
+        type=Path,
+        default=None,
+        help="compile_commands.json or the build dir holding it (default: build-fprime-automatic-native*/)",
+    )
     q.add_argument("--codeql", default=None, help="Path to the CodeQL CLI (default: $CODEQL or PATH)")
     q.add_argument(
         "--codeql-db", type=Path, default=None, help="Existing CodeQL database of the project (skips database creation)"
@@ -83,6 +111,22 @@ def _codeql_phase(
     module_rel = _relative(module, project)
     rules = codeql_rule_ids()
     sarif = args.sarif
+    if sarif is None and args.analyzer == "clang-tidy":
+        try:
+            sarif = ct.analyze(
+                project,
+                module,
+                work_dir,
+                clang_tidy=args.clang_tidy,
+                plugin=args.tidy_plugin,
+                compile_commands=args.compile_commands,
+                jobs=args.jobs,
+                tool_version=__version__,
+            )
+        except ct.ClangTidyError as exc:
+            log.write(f"clang-tidy: {exc}\n")
+            return CodeqlEvidence(ran=False, tool="clang-tidy", reason=str(exc)), None
+        return cq.scope_findings(cq.load_sarif(sarif), module_rel, rules, tool="clang-tidy"), sarif
     if sarif is None:
         decision = cq.license_gate(project, args.codeql_license_ack)
         log.write(f"codeql license gate: {decision.basis}\n")
@@ -106,7 +150,8 @@ def _codeql_phase(
         except cq.CodeqlError as exc:
             log.write(f"codeql: {exc}\n")
             return CodeqlEvidence(ran=False, reason=str(exc)), None
-    evidence = cq.scope_findings(cq.load_sarif(sarif), module_rel, rules)
+    tool = "clang-tidy" if args.analyzer == "clang-tidy" else "CodeQL"
+    evidence = cq.scope_findings(cq.load_sarif(sarif), module_rel, rules, tool=tool)
     return evidence, sarif
 
 
@@ -173,7 +218,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         counts[v.status] = counts.get(v.status, 0) + 1
     print(f"wrote {output}: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
     if not args.skip_codeql and not codeql_evidence.ran:
-        print(f"codeql did not run: {codeql_evidence.reason}", file=sys.stderr)
+        print(f"{codeql_evidence.tool} did not run: {codeql_evidence.reason}", file=sys.stderr)
         return EXIT_CODEQL_UNAVAILABLE
     return EXIT_ITEMS_FAILED if counts.get(NO) else EXIT_OK
 

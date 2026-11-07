@@ -1,0 +1,9 @@
+| test.cpp:7:5:7:11 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:10:5:10:11 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:18:5:18:11 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:28:5:28:11 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:31:5:31:11 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:36:5:36:12 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:38:5:38:12 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:41:5:41:12 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |
+| test.cpp:46:25:46:32 | case ...: | This non-empty switch case falls through to the next case without a fall-through annotation. |

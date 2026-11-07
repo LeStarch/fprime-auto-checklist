@@ -1,0 +1,23 @@
+| test.cpp:4:3:4:12 | declaration | This line contains 2 statements; only one is allowed. |
+| test.cpp:5:3:5:8 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:8:10:8:15 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:11:33:11:36 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:13:15:13:18 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:16:3:16:76 | switch (...) ...  | This line contains 2 statements; only one is allowed. |
+| test.cpp:16:24:16:29 | ExprStmt | This line contains 5 statements; only one is allowed. |
+| test.cpp:18:5:18:10 | break; | This line contains 2 statements; only one is allowed. |
+| test.cpp:19:3:19:6 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:21:5:21:8 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:27:12:27:19 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:32:12:32:19 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:33:12:33:45 | declaration | This line contains 2 statements; only one is allowed. |
+| test.cpp:33:26:33:33 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:34:12:34:33 | if (...) ...  | This line contains 2 statements; only one is allowed. |
+| test.cpp:35:12:35:29 | if (...) ...  | This line contains 2 statements; only one is allowed. |
+| test.cpp:36:12:36:30 | for(...;...;...) ... | This line contains 3 statements; only one is allowed. |
+| test.cpp:37:12:37:21 | declaration | This line contains 4 statements; only one is allowed. |
+| test.cpp:38:12:38:28 | declaration | This line contains 3 statements; only one is allowed. |
+| test.cpp:39:12:39:17 | label ...: | This line contains 6 statements; only one is allowed. |
+| test.cpp:40:12:40:12 | ; | This line contains 2 statements; only one is allowed. |
+| test.cpp:41:12:41:19 | ExprStmt | This line contains 2 statements; only one is allowed. |
+| test.cpp:43:12:43:19 | ExprStmt | This line contains 2 statements; only one is allowed. |

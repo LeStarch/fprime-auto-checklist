@@ -1,0 +1,14 @@
+| test.cpp:10:36:10:50 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:12:60:12:74 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:15:75:15:89 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:19:31:19:43 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:20:64:20:84 | ... - ... | Unsigned subtraction from getBuffLength() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:25:33:25:51 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:26:36:26:60 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:28:59:28:73 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:29:48:29:62 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:31:81:31:96 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:32:51:32:65 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:34:77:34:91 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:35:36:35:68 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |
+| test.cpp:36:32:36:48 | ... - ... | Unsigned subtraction from getSize() with no check that it is at least the subtracted constant; this underflows instead of going negative when the size is too small. |

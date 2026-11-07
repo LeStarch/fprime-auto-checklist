@@ -1,0 +1,15 @@
+| test.cpp:8:5:8:36 | for(...;...;...) ... | This loop does not have a fixed bound. |
+| test.cpp:9:5:9:38 | while (...) ... | The loop counter i is not always incremented in the loop body. |
+| test.cpp:12:5:12:33 | while (...) ... | The loop counter i is not always incremented in the loop body. |
+| test.cpp:15:5:15:34 | for(...;...;...) ... | This loop does not have a fixed bound. |
+| test.cpp:16:5:16:28 | while (...) ... | This loop does not have a fixed bound. |
+| test.cpp:20:5:20:27 | while (...) ... | This loop does not have a fixed bound. |
+| test.cpp:22:5:22:33 | for(...;...;...) ... | This loop does not have a fixed bound. |
+| test.cpp:26:5:26:48 | for(...;...;...) ... | This loop does not have a fixed bound. |
+| test.cpp:29:5:29:48 | while (...) ... | The loop counter i is not always incremented in the loop body. |
+| test.cpp:32:5:32:31 | while (...) ... | This loop does not have a fixed bound. |
+| test.cpp:38:5:38:35 | for(...;...;...) ... | The loop counter i is not always incremented in the loop body. |
+| test.cpp:39:5:39:38 | for(...;...;...) ... | The loop counter i is not always incremented in the loop body. |
+| test.cpp:41:5:41:35 | for(...;...;...) ... | The loop counter i is not always incremented in the loop body. |
+| test.cpp:44:5:44:38 | while (...) ... | The loop counter i is not always incremented in the loop body. |
+| test.cpp:47:5:47:35 | for(...;...;...) ... | This loop does not have a fixed bound. |

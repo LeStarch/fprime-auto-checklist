@@ -1,0 +1,9 @@
+| test.cpp:5:3:5:43 | for(...;...;...) ... | This loop's condition depends on the floating-point variable f. |
+| test.cpp:5:3:5:43 | for(...;...;...) ... | This loop's condition depends on the floating-point variable x. |
+| test.cpp:8:3:8:37 | while (...) ... | This loop's condition depends on the floating-point variable f. |
+| test.cpp:9:3:9:39 | while (...) ... | This loop's condition depends on the floating-point variable d. |
+| test.cpp:12:3:12:37 | do (...) ... | This loop's condition depends on the floating-point variable t. |
+| test.cpp:13:3:13:26 | while (...) ... | This loop's condition depends on the floating-point variable x. |
+| test.cpp:14:3:14:47 | while (...) ... | This loop's condition depends on the floating-point variable y. |
+| test.cpp:19:42:19:71 | for(...;...;...) ... | This loop's condition depends on the floating-point variable lim. |
+| test.cpp:19:42:19:71 | for(...;...;...) ... | This loop's condition depends on the floating-point variable v. |

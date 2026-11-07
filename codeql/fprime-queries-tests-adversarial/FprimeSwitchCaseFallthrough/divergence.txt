@@ -1,0 +1,3 @@
+# Deliberate divergences from the CodeQL oracle (CodeQL is wrong here).
+# -N reason: CodeQL reports line N, this port does not.  +N reason: the reverse.
+-7 `[[fallthrough]];` is the standard fall-through annotation; CodeQL only recognises comments

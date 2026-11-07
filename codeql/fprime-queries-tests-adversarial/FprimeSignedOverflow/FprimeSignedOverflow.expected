@@ -1,0 +1,14 @@
+| test.cpp:12:8:12:12 | ... + ... | Signed long long + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:13:8:13:12 | ... - ... | Signed long long - may overflow; its operands are not range-checked beforehand. |
+| test.cpp:14:8:14:12 | ... * ... | Signed long long * may overflow; its operands are not range-checked beforehand. |
+| test.cpp:17:8:17:12 | ... + ... | Signed long long + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:19:8:19:14 | ... * ... | Signed long long * may overflow; its operands are not range-checked beforehand. |
+| test.cpp:21:8:21:16 | ... + ... | Signed long long + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:22:8:22:14 | ... + ... | Signed long long + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:24:8:24:30 | ... * ... | Signed long long * may overflow; its operands are not range-checked beforehand. |
+| test.cpp:28:8:28:12 | ... + ... | Signed long long + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:36:8:36:16 | ... + ... | Signed long long + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:45:28:45:32 | ... + ... | Signed int + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:49:49:49:53 | ... + ... | Signed int + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:50:21:50:63 | ... + ... | Signed int + may overflow; its operands are not range-checked beforehand. |
+| test.cpp:56:26:56:34 | ... - ... | Signed int - may overflow; its operands are not range-checked beforehand. |

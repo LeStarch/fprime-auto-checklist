@@ -1,0 +1,19 @@
+| test.cpp:5:26:5:26 | d | Value of type double is implicitly narrowed to float. |
+| test.cpp:7:32:7:32 | d | Value of type double is implicitly narrowed to float. |
+| test.cpp:9:11:9:11 | d | Value of type double is implicitly narrowed to float. |
+| test.cpp:15:11:15:17 | ... * ... | Value of type double is implicitly narrowed to float. |
+| test.cpp:17:11:17:12 | ld | Value of type long double is implicitly narrowed to float. |
+| test.cpp:18:11:18:12 | ld | Value of type long double is implicitly narrowed to double. |
+| test.cpp:21:9:21:9 | d | Value of type double is implicitly narrowed to float. |
+| test.cpp:22:9:22:13 | ... * ... | Value of type double is implicitly narrowed to float. |
+| test.cpp:23:9:23:14 | access to array | Value of type double is implicitly narrowed to float. |
+| test.cpp:24:7:24:7 | d | Value of type double is implicitly narrowed to float. |
+| test.cpp:26:7:26:11 | ... + ... | Value of type double is implicitly narrowed to float. |
+| test.cpp:27:11:27:23 | ... ? ... : ... | Value of type double is implicitly narrowed to float. |
+| test.cpp:28:11:28:33 | ... * ... | Value of type double is implicitly narrowed to float. |
+| test.cpp:29:11:29:12 | - ... | Value of type double is implicitly narrowed to float. |
+| test.cpp:30:15:30:15 | d | Value of type double is implicitly narrowed to float. |
+| test.cpp:31:12:31:12 | d | Value of type double is implicitly narrowed to float. |
+| test.cpp:33:34:33:34 | x | Value of type double is implicitly narrowed to float. |
+| test.cpp:35:11:35:21 | ... + ... | Value of type double is implicitly narrowed to float. |
+| test.cpp:40:47:40:47 | t | Value of type double is implicitly narrowed to float. |
