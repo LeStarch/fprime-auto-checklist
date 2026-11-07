@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -207,8 +208,13 @@ def run(
     header_filter: str,
     checks: str,
     jobs: Optional[int] = None,
+    failures: Optional[List[Path]] = None,
 ) -> List[Diagnostic]:
-    """Run clang-tidy once per translation unit (in parallel) and collect the diagnostics."""
+    """Run clang-tidy once per translation unit (in parallel) and collect the diagnostics.
+
+    Translation units clang-tidy could not parse are appended to ``failures`` (their
+    findings are lost); the run only raises when no translation unit succeeded.
+    """
     if not sources:
         return []
     build_dir = compile_commands.parent
@@ -231,13 +237,27 @@ def run(
     with ThreadPoolExecutor(max_workers=jobs or os.cpu_count() or 2) as pool:
         results = list(pool.map(one, sources))
     diags: List[Diagnostic] = []
+    failed: List[Path] = []
     with log.open("w", encoding="utf-8") as fh:
         for source, cmd, proc in results:
             fh.write("$ " + " ".join(cmd) + f"\n[exit {proc.returncode}]\n{proc.stdout}\n{proc.stderr}\n")
-            if proc.returncode not in (0, 1) and "error:" in proc.stderr and not proc.stdout.strip():
-                raise ClangTidyError(f"clang-tidy failed on {source}: see {log}")
+            if proc.returncode not in (0, 1) or "error:" in proc.stderr:
+                failed.append(source)
             diags.extend(parse_diagnostics(proc.stdout))
+        if failed:
+            fh.write("failed translation units: " + ", ".join(str(f) for f in failed) + "\n")
+    if len(failed) == len(sources):
+        raise ClangTidyError(f"clang-tidy failed on every translation unit: see {log}")
+    if failures is not None:
+        failures.extend(failed)
     return diags
+
+
+def _rel(path: Path, project: Path) -> str:
+    try:
+        return path.resolve().relative_to(project).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _line_hash(path: Path, line: int, rule_id: str) -> str:
@@ -260,10 +280,12 @@ def to_sarif(
     rule_list: Sequence[Rule],
     tool_version: str = "",
     tidy_version: str = "",
+    failed_sources: Sequence[Path] = (),
 ) -> dict:
     """SARIF 2.1.0 with one result per unique diagnostic, CodeQL rule ids and partial fingerprints.
 
     Repeated header diagnostics (one per translation unit) collapse to a single result.
+    Translation units that failed to parse are recorded as invocation notifications.
     """
     mapping = check_to_rule(rule_list)
     by_id = {r.id: r for r in rule_list}
@@ -336,6 +358,22 @@ def to_sarif(
                     }
                 },
                 "automationDetails": {"id": "fprime-auto-checklist/clang-tidy/"},
+                "invocations": [
+                    {
+                        "executionSuccessful": True,
+                        "toolExecutionNotifications": [
+                            {
+                                "level": "warning",
+                                "descriptor": {"id": "translation-unit-failed"},
+                                "message": {
+                                    "text": f"clang-tidy could not parse {_rel(Path(f), project)}; "
+                                    "its findings are missing"
+                                },
+                            }
+                            for f in failed_sources
+                        ],
+                    }
+                ],
                 "originalUriBaseIds": {"%SRCROOT%": {"uri": project.as_uri() + "/"}},
                 "results": results,
             }
@@ -373,6 +411,7 @@ def analyze(
     rule_list = rules()
     module_abs = module.resolve()
     header_filter = "^" + re.escape(str(module_abs)) + "/"
+    failed: List[Path] = []
     diags = run(
         tidy,
         plugin_path,
@@ -382,8 +421,17 @@ def analyze(
         header_filter=header_filter,
         checks=checks_argument(rule_list),
         jobs=jobs,
+        failures=failed,
     )
-    sarif = to_sarif(diags, project, rule_list, tool_version=tool_version, tidy_version=tidy_version(tidy))
+    if failed:
+        print(
+            f"clang-tidy: {len(failed)}/{len(sources)} translation units failed to parse "
+            f"(see {work_dir / 'clang-tidy.log'})",
+            file=sys.stderr,
+        )
+    sarif = to_sarif(
+        diags, project, rule_list, tool_version=tool_version, tidy_version=tidy_version(tidy), failed_sources=failed
+    )
     out = work_dir / "checklist.sarif"
     out.write_text(json.dumps(sarif, indent=2), encoding="utf-8")
     return out

@@ -117,3 +117,47 @@ def test_find_plugin_and_clang_tidy_errors(tmp_path, monkeypatch):
     assert ct.find_clang_tidy(None, plugin) == str(tmp_path / "ct")
     with pytest.raises(ct.ClangTidyError):
         ct.find_compile_commands(tmp_path, None)
+
+
+def test_run_records_failed_translation_units(tmp_path):
+    """A translation unit clang-tidy cannot parse is reported, not silently dropped; all failing raises."""
+    fake = tmp_path / "clang-tidy"
+    fake.write_text(
+        "#!/bin/sh\n"
+        'case "$@" in *bad.cpp*) echo "bad.cpp:1:1: error: unknown type" >&2; exit 1;; esac\n'
+        'echo "good.cpp:3:5: warning: printf() is not allowed [fprime-no-printf]"\n'
+    )
+    fake.chmod(0o755)
+    (tmp_path / "compile_commands.json").write_text("[]")
+    good, bad = tmp_path / "good.cpp", tmp_path / "bad.cpp"
+    good.write_text("int main() {}\n")
+    bad.write_text("bogus\n")
+    failed: list = []
+    diags = ct.run(
+        str(fake),
+        tmp_path / "p.so",
+        tmp_path / "compile_commands.json",
+        [good, bad],
+        tmp_path / "log",
+        header_filter=".*",
+        checks="-*,fprime-*",
+        jobs=1,
+        failures=failed,
+    )
+    assert [d.check for d in diags] == ["fprime-no-printf"]
+    assert failed == [bad]
+    assert "failed translation units" in (tmp_path / "log").read_text()
+    sarif = ct.to_sarif(diags, tmp_path, ct.rules(), failed_sources=failed)
+    notes = sarif["runs"][0]["invocations"][0]["toolExecutionNotifications"]
+    assert len(notes) == 1 and "bad.cpp" in notes[0]["message"]["text"]
+    with pytest.raises(ct.ClangTidyError):
+        ct.run(
+            str(fake),
+            tmp_path / "p.so",
+            tmp_path / "compile_commands.json",
+            [bad],
+            tmp_path / "log2",
+            header_filter=".*",
+            checks="-*",
+            jobs=1,
+        )
