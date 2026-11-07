@@ -299,9 +299,6 @@ private:
       } else if (const auto *ME = dyn_cast<MemberExpr>(S); ME && ME->isArrow()) {
         if (const Expr *A = accessOf(ME->getBase(), P))
           Out.push_back({A, ME});
-      } else if (const auto *C = dyn_cast<CallExpr>(S); C && !isa<CXXMemberCallExpr>(C)) {
-        if (const Expr *A = accessOf(C->getCallee(), P))
-          Out.push_back({A, A});
       } else if (const auto *B = dyn_cast<BinaryOperator>(S);
                  B && (B->getOpcode() == BO_Add || B->getOpcode() == BO_Sub) && B->getType()->isPointerType()) {
         if (const Expr *A = accessOf(B->getLHS(), P))
@@ -555,7 +552,17 @@ private:
     if (From.isInvalid())
       return false;
     StringRef Text = Lexer::getSourceText(CharSourceRange::getCharRange(From, Begin), SM, LO);
-    return Text.contains("@non-terminating@");
+    // CodeQL's getCommentedElement(): the comment must be the last thing before the loop.
+    size_t Pos = Text.rfind("@non-terminating@");
+    if (Pos == StringRef::npos)
+      return false;
+    StringRef Tail = Text.substr(Pos);
+    size_t End = Tail.find("*/");
+    if (End != StringRef::npos)
+      Tail = Tail.substr(End + 2);
+    else
+      Tail = Tail.substr(Tail.find('\n') == StringRef::npos ? Tail.size() : Tail.find('\n'));
+    return Tail.trim().empty();
   }
   // Constant, const variable, or variable not written inside the loop.
   static bool validBound(const Expr *E, const Stmt *Loop, ASTContext &Ctx) {
