@@ -269,6 +269,7 @@ public:
   using ClangTidyCheck::ClangTidyCheck;
   void registerMatchers(MatchFinder *F) override {
     F->addMatcher(varDecl(unless(isImplicit())).bind("var"), this);
+    F->addMatcher(fieldDecl(unless(isImplicit())).bind("field"), this);
     F->addMatcher(functionDecl(isDefinition(), unless(isImplicit())).bind("fn"), this);
   }
   void check(const MatchFinder::MatchResult &R) override {
@@ -279,6 +280,10 @@ public:
     if (const auto *V = R.Nodes.getNodeAs<VarDecl>("var")) {
       D = V;
       T = V->getType();
+    } else if (const auto *FD = R.Nodes.getNodeAs<FieldDecl>("field")) {
+      // CodeQL's MemberVariable is a Variable whose declaration is its definition.
+      D = FD;
+      T = FD->getType();
     } else {
       const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
       D = Fn;
@@ -351,6 +356,8 @@ private:
     }
     if (const auto *ET = dyn_cast<ElaboratedType>(Ty))
       return usesBasicInt(ET->getNamedType(), SM, Used, Depth + 1);
+    if (const auto *AT = dyn_cast<AutoType>(Ty)) // `auto a = 1;` is judged by its deduced type
+      return AT->isDeduced() && usesBasicInt(AT->getDeducedType(), SM, Used, Depth + 1);
     if (const auto *BT = dyn_cast<BuiltinType>(Ty)) {
       if (BT->isInteger() && BT->getKind() != BuiltinType::Bool && BT->getKind() != BuiltinType::WChar_S &&
           BT->getKind() != BuiltinType::WChar_U && BT->getKind() != BuiltinType::Char16 && BT->getKind() != BuiltinType::Char32) {
@@ -453,8 +460,10 @@ private:
       E = E->IgnoreParenImpCasts();
       if (const auto *C = dyn_cast<CallExpr>(E))
         return isExternalFunction(C->getDirectCallee());
-      if (E->getBeginLoc().isMacroID() && SM.isInSystemHeader(SM.getSpellingLoc(E->getBeginLoc())))
-        return true; // errno, INADDR_ANY, ...
+      if (E->getBeginLoc().isMacroID() &&
+          (SM.isInSystemHeader(SM.getSpellingLoc(E->getBeginLoc())) ||
+           Lexer::getImmediateMacroName(E->getBeginLoc(), SM, Ctx.getLangOpts()) == "errno"))
+        return true; // errno (any definition, as CodeQL), INADDR_ANY, ...
       if (const auto *ME = dyn_cast<MemberExpr>(E))
         return SM.isInSystemHeader(ME->getMemberDecl()->getLocation());
       return false;
