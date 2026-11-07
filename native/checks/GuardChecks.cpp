@@ -1,6 +1,9 @@
 // Control-flow guard checks (division, indexing, parameters, loops, overflow).
 #include "FprimeChecks.h"
 
+#include "clang/Analysis/Analyses/Dominators.h"
+#include "clang/Analysis/CFG.h"
+
 #include "clang/AST/ParentMapContext.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 
@@ -57,7 +60,7 @@ public:
     bool IsFloat = Divisor->getType()->isFloatingType() || Op->getLHS()->getType()->isFloatingType();
     if (IsFloat != Floating)
       return;
-    const ValueDecl *V = accessedDecl(Divisor->IgnoreParenImpCasts());
+    const ValueDecl *V = accessedDecl(Divisor->IgnoreParenCasts());
     if (!V || isConstantValue(Divisor, *R.Context) || constNonZeroInit(V, *R.Context))
       return;
     if (guardedBefore(V, Op, Fn, *R.Context, /*Strict=*/Floating))
@@ -98,7 +101,7 @@ public:
     const Expr *Idx = AE->getIdx();
     if (Idx->isInstantiationDependent())
       return; // judged in the instantiations; CodeQL also reports on the uninstantiated template
-    const ValueDecl *V = accessedDecl(Idx->IgnoreParenImpCasts());
+    const ValueDecl *V = accessedDecl(Idx->IgnoreParenCasts());
     if (!V || isa<ParmVarDecl>(V) || isConstantValue(Idx, *R.Context))
       return;
     if (AE->getBase()->IgnoreParenImpCasts()->getType()->isPointerType() &&
@@ -122,7 +125,7 @@ public:
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
     if (Op->isInstantiationDependent() || inTestPath(pathOf(Op, *R.SourceManager)))
       return;
-    QualType T = Op->getType();
+    QualType T = fullyConvertedType(Op, *R.Context);
     if (!T->isSignedIntegerType() || T->isEnumeralType())
       return;
     const Expr *L = Op->getLHS()->IgnoreParenImpCasts();
@@ -130,9 +133,9 @@ public:
     if (isa<IntegerLiteral>(L) || isa<IntegerLiteral>(Rr) || isa<CharacterLiteral>(L) || isa<CharacterLiteral>(Rr))
       return;
     // Range-analysis shortcut: the operation can only overflow when some operand is unbounded.
-    uint64_t Width = R.Context->getTypeSize(T);
-    bool LB = bounded(L, Width, Op->getOpcode() == BO_Mul, *R.Context);
-    bool RB = bounded(Rr, Width, Op->getOpcode() == BO_Mul, *R.Context);
+    uint64_t Width = R.Context->getTypeSize(Op->getType());
+    bool LB = bounded(L, Width, Op->getOpcode() == BO_Mul, *R.Context, Fn);
+    bool RB = bounded(Rr, Width, Op->getOpcode() == BO_Mul, *R.Context, Fn);
     if (LB && RB)
       return;
     if (operandGuarded(L, Op, Fn, *R.Context) || operandGuarded(Rr, Op, Fn, *R.Context))
@@ -145,24 +148,62 @@ private:
   // Mirrors what CodeQL's range analysis can bound: literals, enumerators and sizeof (but not
   // const variables), values promoted or cast from a narrower type, conditionals and arithmetic
   // of bounded operands.
-  static bool bounded(const Expr *E, uint64_t Width, bool Mul, ASTContext &Ctx) {
+  // CodeQL judges signedness on the fully converted expression (e.g. `i64 += u32 + i32`).
+  static QualType fullyConvertedType(const Expr *E, ASTContext &Ctx) {
+    QualType T = E->getType();
+    const Stmt *Cur = E;
+    while (true) {
+      const auto &Parents = Ctx.getParents(*Cur);
+      if (Parents.empty())
+        break;
+      const auto *P = Parents[0].get<Stmt>();
+      if (!P || !(isa<ImplicitCastExpr>(P) || isa<ParenExpr>(P)))
+        break;
+      T = cast<Expr>(P)->getType();
+      Cur = P;
+    }
+    return T;
+  }
+  // A local whose only definition is a constant initialiser has a known range in CodeQL's SSA.
+  static bool constantLocal(const ValueDecl *V, const FunctionDecl *Fn, ASTContext &Ctx) {
+    const auto *VD = dyn_cast_or_null<VarDecl>(V);
+    if (!VD || !VD->isLocalVarDecl() || isa<ParmVarDecl>(VD) || !VD->getInit() || !isConstantValue(VD->getInit(), Ctx))
+      return false;
+    return !writtenAnywhere(Fn->getBody(), VD);
+  }
+  static bool writtenAnywhere(const Stmt *S, const ValueDecl *V) {
+    if (!S)
+      return false;
+    if (const auto *B = dyn_cast<BinaryOperator>(S); B && B->isAssignmentOp() && accessedDecl(B->getLHS()->IgnoreParenImpCasts()) == V)
+      return true;
+    if (const auto *U = dyn_cast<UnaryOperator>(S); U && (U->isIncrementDecrementOp() || U->getOpcode() == UO_AddrOf) &&
+                                                   accessedDecl(U->getSubExpr()->IgnoreParenImpCasts()) == V)
+      return true;
+    for (const Stmt *C : S->children())
+      if (writtenAnywhere(C, V))
+        return true;
+    return false;
+  }
+  static bool bounded(const Expr *E, uint64_t Width, bool Mul, ASTContext &Ctx, const FunctionDecl *Fn) {
     E = E->IgnoreParenImpCasts();
     if (isa<IntegerLiteral>(E) || isa<CharacterLiteral>(E) || isa<CXXBoolLiteralExpr>(E) ||
         isa<UnaryExprOrTypeTraitExpr>(E))
       return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
-      return isa<EnumConstantDecl>(DRE->getDecl());
+      if (isa<EnumConstantDecl>(DRE->getDecl()) || constantLocal(DRE->getDecl(), Fn, Ctx))
+        return true;
     if (const auto *C = dyn_cast<ConditionalOperator>(E))
-      return bounded(C->getTrueExpr(), Width, Mul, Ctx) && bounded(C->getFalseExpr(), Width, Mul, Ctx);
+      return bounded(C->getTrueExpr(), Width, Mul, Ctx, Fn) && bounded(C->getFalseExpr(), Width, Mul, Ctx, Fn);
     if (const auto *B = dyn_cast<BinaryOperator>(E))
       if (B->getOpcode() == BO_Add || B->getOpcode() == BO_Sub || B->getOpcode() == BO_Mul)
-        return bounded(B->getLHS(), Width, Mul, Ctx) && bounded(B->getRHS(), Width, Mul, Ctx);
+        return bounded(B->getLHS(), Width, Mul, Ctx, Fn) && bounded(B->getRHS(), Width, Mul, Ctx, Fn);
+    if (Mul)
+      return false; // CodeQL's range analysis does not bound products of variables
     if (const auto *Cast = dyn_cast<ExplicitCastExpr>(E))
       if (!Cast->getSubExpr()->getType()->isPointerType())
-        return bounded(Cast->getSubExpr(), Width, Mul, Ctx) ||
+        return bounded(Cast->getSubExpr(), Width, Mul, Ctx, Fn) ||
                Ctx.getTypeSize(Cast->getSubExpr()->getType()) < Width;
-    uint64_t W = Ctx.getTypeSize(E->getType());
-    return Mul ? W * 2 < Width : W < Width;
+    return E->getType()->isIntegerType() && Ctx.getTypeSize(E->getType()) < Width;
   }
   static bool operandGuarded(const Expr *Operand, const Stmt *Use, const FunctionDecl *Fn, ASTContext &Ctx) {
     const ValueDecl *V = accessedDecl(Operand);
@@ -179,7 +220,7 @@ public:
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
-    if (!isa<CXXMethodDecl>(Fn) && Fn->getStorageClass() == SC_Static)
+    if (!isa<CXXMethodDecl>(Fn) && (Fn->getStorageClass() == SC_Static || !Fn->isExternallyVisible()))
       return;
     for (const ParmVarDecl *P : Fn->parameters()) {
       bool Pointer = P->getType()->isPointerType();
@@ -191,7 +232,9 @@ public:
       for (auto [Access, Use] : Uses) {
         if (isCheckingAccess(P, Access, Fn, *R.Context))
           continue;
-        if (guardedBefore(P, Use, Fn, *R.Context, /*Strict=*/false))
+        if (guardedBefore(P, Use, Fn, *R.Context, /*Strict=*/true))
+          continue;
+        if (reassignedBefore(P, Use, Fn, *R.Context))
           continue;
         diag(Access->getBeginLoc(),
              "Parameter %0 is %1 without first being checked (e.g. with FW_ASSERT or a condition).")
@@ -205,9 +248,46 @@ private:
     const Expr *Inner = E->IgnoreParenImpCasts();
     return accessedDecl(Inner) == P ? Inner : nullptr;
   }
+  // An assignment or ++/-- of the parameter that dominates the use ends CodeQL's uncheckedFlow.
+  static bool reassignedBefore(const ParmVarDecl *P, const Stmt *Use, const FunctionDecl *Fn, ASTContext &Ctx) {
+    llvm::SmallVector<const Stmt *, 4> Defs;
+    collectDefs(Fn->getBody(), P, Defs);
+    if (Defs.empty())
+      return false;
+    CFG::BuildOptions BuildOpts;
+    BuildOpts.setAllAlwaysAdd();
+    std::unique_ptr<CFG> G = CFG::buildCFG(Fn, Fn->getBody(), &Ctx, BuildOpts);
+    if (!G)
+      return false;
+    unsigned UseIndex = 0;
+    const CFGBlock *UseBlock = blockOfOrParent(*G, Use, Ctx, &UseIndex);
+    if (!UseBlock)
+      return false;
+    CFGDominatorTreeImpl<false> Dom;
+    Dom.buildDominatorTree(G.get());
+    for (const Stmt *D : Defs) {
+      unsigned DefIndex = 0;
+      const CFGBlock *DefBlock = blockOfOrParent(*G, D, Ctx, &DefIndex);
+      if (!DefBlock)
+        continue;
+      if (DefBlock == UseBlock ? DefIndex < UseIndex : Dom.dominates(DefBlock, UseBlock))
+        return true;
+    }
+    return false;
+  }
+  static void collectDefs(const Stmt *S, const ParmVarDecl *P, llvm::SmallVectorImpl<const Stmt *> &Out) {
+    if (!S || isa<LambdaExpr>(S))
+      return;
+    if (const auto *B = dyn_cast<BinaryOperator>(S); B && B->isAssignmentOp() && accessedDecl(B->getLHS()->IgnoreParenImpCasts()) == P)
+      Out.push_back(B);
+    if (const auto *U = dyn_cast<UnaryOperator>(S); U && U->isIncrementDecrementOp() && accessedDecl(U->getSubExpr()->IgnoreParenImpCasts()) == P)
+      Out.push_back(U);
+    for (const Stmt *C : S->children())
+      collectDefs(C, P, Out);
+  }
   static void unsafeUses(const Stmt *S, const ParmVarDecl *P, bool Pointer,
                          llvm::SmallVectorImpl<std::pair<const Expr *, const Stmt *>> &Out) {
-    if (!S)
+    if (!S || isa<LambdaExpr>(S))
       return;
     if (Pointer) {
       if (const auto *U = dyn_cast<UnaryOperator>(S); U && U->getOpcode() == UO_Deref) {
@@ -221,7 +301,7 @@ private:
           Out.push_back({A, ME});
       } else if (const auto *C = dyn_cast<CallExpr>(S); C && !isa<CXXMemberCallExpr>(C)) {
         if (const Expr *A = accessOf(C->getCallee(), P))
-          Out.push_back({A, C});
+          Out.push_back({A, A});
       } else if (const auto *B = dyn_cast<BinaryOperator>(S);
                  B && (B->getOpcode() == BO_Add || B->getOpcode() == BO_Sub) && B->getType()->isPointerType()) {
         if (const Expr *A = accessOf(B->getLHS(), P))
@@ -270,7 +350,7 @@ public:
     }
     const VarDecl *Stored = storedInto(Call, Parent);
     if (Stored && !isa<ParmVarDecl>(Stored) && !Stored->getType()->isReferenceType() && !Stored->isConstexpr() &&
-        !readLater(Stored, Call, Fn->getBody(), *R.SourceManager))
+        !usedBeforeRedefinition(Stored, Parent, Fn, *R.Context))
       diag(Call->getBeginLoc(), "%0's return value is stored but not checked.") << Name;
   }
 
@@ -349,6 +429,44 @@ private:
           return VD;
     // Initialisers are wrapped in implicit casts: look through them.
     return nullptr;
+  }
+  static bool usedBeforeRedefinition(const VarDecl *V, const Stmt *Def, const FunctionDecl *Fn, ASTContext &Ctx) {
+    CFG::BuildOptions BuildOpts;
+    BuildOpts.setAllAlwaysAdd();
+    std::unique_ptr<CFG> G = CFG::buildCFG(Fn, Fn->getBody(), &Ctx, BuildOpts);
+    if (!G)
+      return true;
+    unsigned DefIndex = 0;
+    const CFGBlock *DefBlock = blockOfOrParent(*G, Def, Ctx, &DefIndex);
+    if (!DefBlock)
+      return true;
+    std::set<const CFGBlock *> Visited;
+    llvm::SmallVector<std::pair<const CFGBlock *, unsigned>, 16> Work;
+    Work.push_back({DefBlock, DefIndex + 1});
+    while (!Work.empty()) {
+      auto [B, From] = Work.pop_back_val();
+      bool Redefined = false;
+      for (unsigned I = From; I < B->size() && !Redefined; ++I) {
+        auto CS = (*B)[I].getAs<CFGStmt>();
+        if (!CS)
+          continue;
+        const auto *DRE = dyn_cast<DeclRefExpr>(CS->getStmt());
+        if (!DRE || DRE->getDecl() != V)
+          continue;
+        const auto &Parents = Ctx.getParents(*DRE);
+        const auto *PB = Parents.empty() ? nullptr : Parents[0].get<BinaryOperator>();
+        if (PB && PB->getOpcode() == BO_Assign && PB->getLHS() == DRE)
+          Redefined = true; // overwritten without being read
+        else
+          return true;
+      }
+      if (Redefined)
+        continue;
+      for (const CFGBlock *Succ : B->succs())
+        if (Succ && Visited.insert(Succ).second)
+          Work.push_back({Succ, 0});
+    }
+    return false;
   }
   static bool readLater(const VarDecl *V, const Stmt *Def, const Stmt *Body, const SourceManager &SM) {
     llvm::SmallVector<const DeclRefExpr *, 8> Refs;
@@ -512,13 +630,23 @@ private:
       Stmts.push_back(Body);
     for (size_t I = 0; I < Stmts.size(); ++I) {
       const Stmt *S = Stmts[I];
-      if (const auto *E = dyn_cast<Expr>(S); E && isStep(E->IgnoreParenImpCasts(), V, Upper, Ctx)) {
+      if (const auto *E = dyn_cast<Expr>(S); E && containsStep(E, V, Upper, Ctx)) {
         for (size_t J = 0; J < I; ++J)
           if (hasContinue(Stmts[J]))
             return false;
         return true;
       }
     }
+    return false;
+  }
+  static bool containsStep(const Stmt *S, const ValueDecl *V, bool Upper, ASTContext &Ctx) {
+    if (!S || isa<LambdaExpr>(S))
+      return false;
+    if (isStep(S, V, Upper, Ctx))
+      return true;
+    for (const Stmt *C : S->children())
+      if (containsStep(C, V, Upper, Ctx))
+        return true;
     return false;
   }
   static bool stepInCommaList(const Expr *E, const ValueDecl *V, bool Upper, ASTContext &Ctx) {

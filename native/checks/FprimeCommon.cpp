@@ -131,6 +131,8 @@ const CFGBlock *blockOf(const CFG &G, const Stmt *S, unsigned *Index) {
   return nullptr;
 }
 
+} // namespace
+
 const CFGBlock *blockOfOrParent(const CFG &G, const Stmt *S, ASTContext &Ctx, unsigned *Index) {
   DynTypedNode Cur = DynTypedNode::create(*S);
   while (true) {
@@ -143,6 +145,8 @@ const CFGBlock *blockOfOrParent(const CFG &G, const Stmt *S, ASTContext &Ctx, un
     Cur = Parents[0]; // walks through VarDecl initialisers as well as statements
   }
 }
+
+namespace {
 
 } // namespace
 
@@ -213,6 +217,19 @@ bool guardedBefore(const ValueDecl *V, const Stmt *Use, const FunctionDecl *F, A
     }
     if (Dom.dominates(GuardBlock, UseBlock))
       return true;
+    if (!Strict) {
+      // Same CodeQL basic block: a chain of unique-successor/unique-predecessor edges from
+      // the use's block reaches the guard's block (e.g. do-while body -> condition).
+      const CFGBlock *B = UseBlock;
+      while (B->succ_size() == 1 && B != GuardBlock) {
+        const CFGBlock *N = *B->succ_begin();
+        if (!N || N->pred_size() != 1)
+          break;
+        B = N;
+      }
+      if (B == GuardBlock)
+        return true;
+    }
   }
   return false;
 }

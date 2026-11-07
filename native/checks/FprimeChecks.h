@@ -2,6 +2,7 @@
 #pragma once
 
 #include "clang-tidy/ClangTidyCheck.h"
+#include "clang/Analysis/CFG.h"
 #include "clang-tidy/ClangTidyModule.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
@@ -56,6 +57,7 @@ bool isCheckingAccess(const ValueDecl *V, const Expr *Access, const FunctionDecl
 
 // The variable or field a DeclRefExpr/MemberExpr reads, else nullptr.
 const ValueDecl *accessedDecl(const Expr *E);
+const CFGBlock *blockOfOrParent(const CFG &G, const Stmt *S, ASTContext &Ctx, unsigned *Index);
 
 // The innermost function whose body contains S.
 const FunctionDecl *enclosingFunction(const Stmt *S, ASTContext &Ctx);
