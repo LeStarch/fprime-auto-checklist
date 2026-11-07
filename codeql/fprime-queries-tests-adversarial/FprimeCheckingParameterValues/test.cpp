@@ -49,3 +49,5 @@ static void staticFree(Obj* p) { sink(p->x); }
 namespace { void anonFree(Obj* p) { sink(p->x); } }
 void oneBranch(Obj* p, int c) { Obj a; if (c) { p = &a; } sink(p->x); }
 void bothBranches(Obj* p, int c) { Obj a; Obj b; if (c) { p = &a; } else { p = &b; } sink(p->x); }
+void diff(Obj* p, Obj* base) { sink(static_cast<int>(p - base)); }
+void arrayParam(Obj arr[4]) { sink(arr[0].x); }

@@ -279,7 +279,9 @@ private:
         if (const Expr *A = accessOf(ME->getBase(), P))
           Out.push_back({A, ME});
       } else if (const auto *B = dyn_cast<BinaryOperator>(S);
-                 B && (B->getOpcode() == BO_Add || B->getOpcode() == BO_Sub) && B->getType()->isPointerType()) {
+                 B && (B->getOpcode() == BO_Add || B->getOpcode() == BO_Sub) &&
+                 (B->getType()->isPointerType() || B->getLHS()->getType()->isPointerType())) {
+        // p + n, p - n and the pointer difference p - q are all pointer arithmetic on p.
         if (const Expr *A = accessOf(B->getLHS(), P))
           Out.push_back({A, B});
         if (const Expr *A = accessOf(B->getRHS(), P))

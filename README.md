@@ -131,7 +131,8 @@ untouched and a stale entry fails the test.  Current divergences:
 `[[fallthrough]];` is a fall-through annotation; `#define ONE() 1` is a
 function-like macro, not a constant; a call through a const-qualified
 function-pointer *variable* is a const call; an `if`/`switch` whose condition
-reads a field gates a cyclic event even inside `&&`/`||`.  On nasa/fprime the two engines agree on
+reads a field gates a cyclic event even inside `&&`/`||`; an array-typed
+parameter is a pointer that must be checked before use.  On nasa/fprime the two engines agree on
 ~81% of findings; the residue is CodeQL's global call-graph purity analysis
 (`no-boolean-side-effects`), its range analysis (`signed-overflow`),
 cross-translation-unit deferred command responses, and CodeQL's reporting of
