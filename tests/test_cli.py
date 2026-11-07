@@ -49,6 +49,85 @@ def test_run_skip_codeql_writes_checklist(tmp_path):
     assert (tmp_path / "checklist.md.work" / "checks.log").is_file()
 
 
+def test_run_applies_docs_overrides(tmp_path):
+    project, widget = _copy_widget(tmp_path)
+    (widget / "docs" / "checklist-overrides.md").write_text(
+        "| # | Status | By | Date | Justification |\n|---|---|---|---|---|\n"
+        "| 3.21 | YES | J. Doe | 2026-11-07 | No ISRs: passive queued component. |\n"
+        "| 2.12 | N/A | llm:claude | 2026-11-07 | Priorities come from the deployment config. |\n"
+        "| 3.33 | | | | |\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "checklist.md"
+    rc = cli.main(
+        [
+            "run",
+            "--project",
+            str(project),
+            "--module",
+            "Svc/Widget",
+            "--skip-codeql",
+            "-o",
+            str(out),
+            "--json-output",
+            str(tmp_path / "r.json"),
+        ]
+    )
+    assert rc == 1  # other deliberate failures remain
+    text = out.read_text(encoding="utf-8")
+    assert "2 overridden by `docs/checklist-overrides.md`" in text
+    assert "| 3.21 |" in text and "YES *(override)*" in text and "Override by J. Doe on 2026-11-07" in text
+    assert "| 3.33 |" in text and "CL-3" in text
+    handoff = text.split("## Hand-off", 1)[1]
+    assert "3.33" in handoff and "3.21" not in handoff
+    data = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
+    rows = {i["id"]: i for i in data["items"]}
+    assert rows["3.21"]["status"] == "YES" and rows["3.21"]["tool_status"] == "REVIEW"
+    assert rows["2.12"]["status"] == "N/A" and rows["2.12"]["tool_status"] == "NO"
+    assert data["overrides"] == 2 and "override" not in rows["3.33"]
+
+
+def test_run_rejects_malformed_overrides(tmp_path, capsys):
+    project, widget = _copy_widget(tmp_path)
+    (widget / "docs" / "checklist-overrides.md").write_text(
+        "| # | Status | By | Date | Justification |\n|---|---|---|---|---|\n| 3.21 | YES | | | |\n",
+        encoding="utf-8",
+    )
+    rc = cli.main(
+        ["run", "--project", str(project), "--module", "Svc/Widget", "--skip-codeql", "-o", str(tmp_path / "c.md")]
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "'By' (person or LLM) is required" in err and "a justification is required" in err
+
+
+def test_run_explicit_missing_overrides_is_usage_error(tmp_path, capsys):
+    project, _widget = _copy_widget(tmp_path)
+    rc = cli.main(
+        [
+            "run",
+            "--project",
+            str(project),
+            "--module",
+            "Svc/Widget",
+            "--skip-codeql",
+            "-o",
+            str(tmp_path / "c.md"),
+            "--overrides",
+            str(tmp_path / "missing.md"),
+        ]
+    )
+    assert rc == 2 and "overrides file not found" in capsys.readouterr().err
+
+
+def test_run_without_overrides_file_is_unchanged(tmp_path):
+    project, _widget = _copy_widget(tmp_path)
+    out = tmp_path / "checklist.md"
+    cli.main(["run", "--project", str(project), "--module", "Svc/Widget", "--skip-codeql", "-o", str(out)])
+    text = out.read_text(encoding="utf-8")
+    assert "overridden" not in text.split("## Status Legend")[0] and " *(override)* |" not in text
+
+
 def test_run_with_prebuilt_sarif(tmp_path):
     sarif = tmp_path / "pre.sarif"
     sarif.write_text(

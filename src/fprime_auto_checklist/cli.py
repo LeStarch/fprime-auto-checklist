@@ -13,6 +13,7 @@ from . import __version__
 from . import clang_tidy as ct
 from . import codeql as cq
 from .checklist import ITEMS, codeql_rule_ids
+from .overrides import OverrideError, apply_overrides, find_overrides, parse_overrides
 from .render import render_json, render_markdown
 from .results import NO, CodeqlEvidence, judge_all
 from .runner import ModuleOutsideProject, RunOptions, _git_head, _relative, run_checks
@@ -58,6 +59,13 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         default="codeql",
         help="Engine for the cpp/fprime/* rules: CodeQL (default; license gated, downloads packs) or the "
         "fprime clang-tidy plugin (offline, no license gate)",
+    )
+    parser.add_argument(
+        "--overrides",
+        type=Path,
+        default=None,
+        help="Human/LLM overrides table (default: <module>/docs/checklist-overrides.md when present); "
+        "a row with a status replaces that item's tool verdict, an empty status leaves it",
     )
     q.add_argument(
         "--skip-codeql",
@@ -193,6 +201,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     records = run_checks(opts, work_dir, log)
     verdicts = judge_all(records, codeql_evidence)
 
+    overrides_path = args.overrides or find_overrides(module)
+    overrides_source = None
+    if overrides_path is not None:
+        if not overrides_path.is_file():
+            print(f"error: overrides file not found: {overrides_path}", file=sys.stderr)
+            return EXIT_USAGE
+        try:
+            overrides = parse_overrides(overrides_path.read_text(encoding="utf-8"), overrides_path.name)
+        except OverrideError as exc:
+            print(f"error: {overrides_path}: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        overrides_source = _relative_or_name(overrides_path, module)
+        verdicts = apply_overrides(verdicts, overrides)
+        log.write(f"overrides: {len(overrides)} item(s) from {overrides_path}\n")
+
     commit = args.sha or _git_head(project)
     markdown = render_markdown(
         verdicts,
@@ -202,6 +225,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         codeql=codeql_evidence,
         owner=args.owner,
         contributors=args.contributors,
+        overrides_source=overrides_source,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(markdown, encoding="utf-8")
@@ -221,6 +245,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"{codeql_evidence.tool} did not run: {codeql_evidence.reason}", file=sys.stderr)
         return EXIT_CODEQL_UNAVAILABLE
     return EXIT_ITEMS_FAILED if counts.get(NO) else EXIT_OK
+
+
+def _relative_or_name(path: Path, module: Path) -> str:
+    try:
+        return path.resolve().relative_to(module.resolve()).as_posix()
+    except ValueError:
+        return path.name
 
 
 def cmd_items(_args: argparse.Namespace) -> int:
