@@ -93,9 +93,11 @@ public:
   void check(const MatchFinder::MatchResult &R) override {
     const auto *AE = R.Nodes.getNodeAs<ArraySubscriptExpr>("ae");
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
-    if (AE->isInstantiationDependent() || inTestPath(pathOf(AE, *R.SourceManager)))
+    if (inTestPath(pathOf(AE, *R.SourceManager)))
       return;
     const Expr *Idx = AE->getIdx();
+    if (Idx->isInstantiationDependent())
+      return; // judged in the instantiations; CodeQL also reports on the uninstantiated template
     const ValueDecl *V = accessedDecl(Idx->IgnoreParenImpCasts());
     if (!V || isa<ParmVarDecl>(V) || isConstantValue(Idx, *R.Context))
       return;

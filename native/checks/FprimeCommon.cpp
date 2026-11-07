@@ -71,7 +71,6 @@ public:
   bool VisitConditionalOperator(ConditionalOperator *S) {
     return addIfReads(S->getCond());
   }
-  bool VisitSwitchStmt(SwitchStmt *S) { return addIfReads(S->getCond()); }
   bool VisitBinaryOperator(BinaryOperator *B) {
     // Short-circuit operands are conditions of their own.
     if (B->isLogicalOp()) {
