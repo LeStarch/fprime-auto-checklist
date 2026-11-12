@@ -202,6 +202,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         codeql=codeql_evidence,
         owner=args.owner,
         contributors=args.contributors,
+        strip_prefix=str(project),
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(markdown, encoding="utf-8")

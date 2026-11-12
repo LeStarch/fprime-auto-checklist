@@ -19,6 +19,10 @@ LEGEND = (
 )
 
 
+def _strip(text: str, prefix: str) -> str:
+    return text.replace(prefix.rstrip("/") + "/", "") if prefix else text
+
+
 def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
@@ -33,7 +37,9 @@ def render_markdown(
     owner: str = "",
     contributors: str = "",
     now: Optional[dt.datetime] = None,
+    strip_prefix: str = "",
 ) -> str:
+    """Render the checklist; ``strip_prefix`` (the project root) is removed from paths in notes."""
     now = now or dt.datetime.now(dt.timezone.utc)
     counts = summarize(verdicts)
     lines = [
@@ -83,7 +89,7 @@ def render_markdown(
         for v in verdicts:
             if v.item.section != section_id:
                 continue
-            notes = "<br>".join(_cell(n) for n in v.notes)
+            notes = "<br>".join(_cell(_strip(n, strip_prefix)) for n in v.notes)
             lines.append(f"| {v.item.id} | {_cell(v.item.text)} | {STATUS_LABELS[v.status]} | {notes} |")
 
     pending = [v for v in verdicts if v.status == REVIEW]
