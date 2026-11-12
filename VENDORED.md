@@ -22,6 +22,11 @@ Local changes to the vendored check scripts (all to be upstreamed):
   only exact ID headers (`ID`, `Req ID`, `Requirement`) start a requirements
   table, so verification matrices with a `Requirements` column are not parsed
   as requirements;
+* `queries/fprime-queries/FprimeUseOfAssertionsNonBoolean.ql` and the clang-tidy
+  `fprime-use-of-assertions-non-boolean` check (item 3.37): `FW_ASSERT(0, ...)`
+  with the literal `0` is the approved "unreachable" divergence from the Boolean
+  rule and is not reported; any other non-Boolean expression (including a
+  variable holding 0, or `1`) still is. Fixture extended accordingly;
 * `check_sdd_sections.py` (D9, item 2.2): a fenced ASCII-art block (box-drawing
   glyphs) under a design heading counts as a block diagram;
 * `check_include_dependencies.py` (I1, item 3.1): with `--build-cache` (passed by

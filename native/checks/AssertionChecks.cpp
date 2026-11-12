@@ -241,6 +241,9 @@ public:
     if (!Asserted || Asserted->isTypeDependent())
       return;
     const Expr *Inner = Asserted->IgnoreParenCasts();
+    // FW_ASSERT(0, ...) ("unreachable") is the approved divergence: the literal 0 only.
+    if (const auto *IL = dyn_cast<IntegerLiteral>(Inner); IL && IL->getValue() == 0)
+      return;
     QualType T = Inner->getType();
     if (const ValueDecl *VD = accessedDecl(Inner))
       T = VD->getType();
