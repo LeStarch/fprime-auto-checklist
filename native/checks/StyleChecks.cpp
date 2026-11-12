@@ -231,7 +231,7 @@ public:
           continue;
         diag(Call->getBeginLoc(), "This for-statement header expression calls the function %0.") << Callee->getNameAsString();
       } else if (const ValueDecl *V = mutatedVariable(E); V && !CondVars.count(V)) {
-        diag(E->getBeginLoc(), "This for-statement header expression modifies the non-loop-control variable %0.") << V->getName();
+        diag(E->getBeginLoc(), "This for-statement header expression modifies the non-loop-control variable %0.") << identName(V);
       }
     }
   }
@@ -328,7 +328,7 @@ public:
       if (External.isExternal(D))
         continue;
       diag(D->getLocation(), "%0 uses the basic integral type %1 rather than a typedef with size and signedness.")
-          << D->getName() << QualType(Used, 0).getAsString();
+          << identName(D) << QualType(Used, 0).getAsString();
     }
     Candidates.clear();
     Ctx = nullptr;
@@ -350,7 +350,7 @@ private:
     const Type *Ty = T.getTypePtr();
     if (const auto *TT = dyn_cast<TypedefType>(Ty)) {
       const TypedefNameDecl *TD = TT->getDecl();
-      if (allowedTypedef(TD->getName()) || SM.isInSystemHeader(TD->getLocation()))
+      if (allowedTypedef(identName(TD)) || SM.isInSystemHeader(TD->getLocation()))
         return false;
       return usesBasicInt(TD->getUnderlyingType(), SM, Used, Depth + 1);
     }
