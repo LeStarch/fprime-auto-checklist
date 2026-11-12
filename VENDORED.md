@@ -22,6 +22,10 @@ Local changes to the vendored check scripts (all to be upstreamed):
   only exact ID headers (`ID`, `Req ID`, `Requirement`) start a requirements
   table, so verification matrices with a `Requirements` column are not parsed
   as requirements;
+* `check_req_ports.py` (R6, item 2.13): a port counts as having a known use-case
+  when a requirement names it, when its SDD port-table row has a description,
+  or when it is a companion (`<base>Complete|Done|Callback|Response`) of a
+  covered port -- requirements describe behaviour and rarely name ports;
 * `_sdd.py` / `check_sdd_port_table.py`: a cell naming several ports/channels
   (`pingIn / pingOut`, `A, B`) is split; `Type` may carry the return type
   (`Fram.Request → Fram.Status`); special ports named in the FPP (product
