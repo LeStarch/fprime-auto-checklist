@@ -208,8 +208,10 @@ def run_checks(opts: RunOptions, work_dir: Path, log: io.StringIO) -> Dict[str, 
     base = ["--module", module]
     jobs = ["--jobs", str(opts.jobs)] if opts.jobs else []
 
-    for _check_id, mod in STATIC_CHECKS:
-        _invoke(mod, list(base), records_file, log)
+    cache = _build_cache(opts.project)
+    for check_id, mod in STATIC_CHECKS:
+        extra = ["--build-cache", str(cache)] if check_id == "I1" and cache is not None else []
+        _invoke(mod, list(base) + extra, records_file, log)
 
     includes = fpp_dependencies(opts.project, opts.module, log)
     if includes is None:
@@ -265,6 +267,13 @@ def run_checks(opts: RunOptions, work_dir: Path, log: io.StringIO) -> Dict[str, 
     except Exception as exc:  # noqa: BLE001
         log.write(f"ERROR: SDD grading crashed: {exc}\n")
     return records
+
+
+def _build_cache(project: Path) -> Optional[Path]:
+    """The project's native (non-UT) build cache, if generated."""
+    caches = sorted(p.parent for p in project.glob("build-fprime-*/locs.fpp"))
+    non_ut = [c for c in caches if not c.name.endswith("-ut")]
+    return (non_ut or caches or [None])[0]
 
 
 def _relative(module: Path, project: Path) -> str:

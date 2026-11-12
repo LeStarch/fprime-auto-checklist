@@ -22,6 +22,15 @@ Local changes to the vendored check scripts (all to be upstreamed):
   only exact ID headers (`ID`, `Req ID`, `Requirement`) start a requirements
   table, so verification matrices with a `Requirements` column are not parsed
   as requirements;
+* `check_sdd_sections.py` (D9, item 2.2): a fenced ASCII-art block (box-drawing
+  glyphs) under a design heading counts as a block diagram;
+* `check_include_dependencies.py` (I1, item 3.1): with `--build-cache` (passed by
+  the runner) includes are resolved on the build's include path from
+  `compile_commands.json`, module names come from the project/framework roots, and
+  dependencies FPP adds itself (`fpp-cache/direct.txt`, `framework.txt`) plus the
+  implicit `Fw_Types` are not reported;
+* `check_coverage_threshold.py` (U5, item 4.5): reads `coverage/summary.txt`
+  written by `fprime-util check --coverage` before falling back to its own gcovr run;
 * `check_req_ports.py` (R6, item 2.13): a port counts as having a known use-case
   when a requirement names it, when its SDD port-table row has a description,
   or when it is a companion (`<base>Complete|Done|Callback|Response`) of a

@@ -22,6 +22,8 @@ from ._sdd import component_kinds, load_sdd
 
 _IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)|<img\s")
 _BLOCK_DIAGRAM_RE = re.compile(r"```mermaid\s*\n\s*(graph|flowchart|classDiagram|C4)", re.IGNORECASE)
+# ASCII-art block diagram: a plain fenced block containing box-drawing / port-marker glyphs
+_ASCII_DIAGRAM_RE = re.compile(r"```[a-z]*\s*\n(?:[^`]*[\u2500-\u257f\u25a0-\u25ff]){3,}[^`]*```")
 _SEQUENCE_RE = re.compile(r"```mermaid\s*\n\s*sequenceDiagram|```(plantuml|puml)\s*\n[^`]*->", re.IGNORECASE)
 
 
@@ -34,8 +36,14 @@ def main(argv=None) -> int:
         failures.append("no docs/sdd.md found")
     else:
         text = sdd.text
-        if not (_BLOCK_DIAGRAM_RE.search(text) or (_IMAGE_RE.search(text) and sdd.has_heading("diagram", "design", "architecture"))):
-            failures.append("no block diagram (add an image or a mermaid graph/flowchart under a design heading)")
+        design_heading = sdd.has_heading("diagram", "design", "architecture")
+        if not (
+            _BLOCK_DIAGRAM_RE.search(text)
+            or (design_heading and (_IMAGE_RE.search(text) or _ASCII_DIAGRAM_RE.search(text)))
+        ):
+            failures.append(
+                "no block diagram (add an image, a mermaid graph/flowchart, or an ASCII-art block under a design heading)"
+            )
         if not (_SEQUENCE_RE.search(text) or (sdd.has_heading("sequence") and _IMAGE_RE.search(text)) or sdd.declares_not_applicable("sequence")):
             failures.append("no sequence diagram (add a mermaid sequenceDiagram, or state 'Sequence diagrams: N/A' with rationale)")
         model = load_module_model(args.module)
