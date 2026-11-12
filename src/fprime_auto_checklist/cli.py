@@ -14,6 +14,7 @@ from . import clang_tidy as ct
 from . import codeql as cq
 from .carry import apply_previous, parse_previous, sources_changed
 from .checklist import ITEMS, codeql_rule_ids
+from .fingerprint import section_fingerprints
 from .render import render_json, render_markdown
 from .results import NO, CodeqlEvidence, judge_all
 from .runner import ModuleOutsideProject, RunOptions, _git_head, _relative, run_checks
@@ -209,11 +210,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     verdicts = judge_all(records, codeql_evidence)
 
     commit = args.sha or _git_head(project)
+    fingerprints = section_fingerprints(module)
     if args.previous is not None:
         previous = parse_previous(args.previous, args.previous_json)
         changed = sources_changed(project, module_rel, previous.commit, commit)
         skipped: list = []
-        carried = apply_previous(verdicts, previous, changed=changed, skipped=skipped)
+        carried = apply_previous(verdicts, previous, changed=changed, skipped=skipped, fingerprints=fingerprints)
         log.write(f"previous checklist {args.previous}: carried {len(carried)} review decision(s) {carried}\n")
         if skipped:
             log.write(
@@ -229,13 +231,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         owner=args.owner,
         contributors=args.contributors,
         strip_prefix=str(project),
+        fingerprints=fingerprints,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(markdown, encoding="utf-8")
     if args.json_output:
         args.json_output.parent.mkdir(parents=True, exist_ok=True)
         args.json_output.write_text(
-            render_json(verdicts, records, codeql_evidence, module=module_rel, commit=commit), encoding="utf-8"
+            render_json(
+                verdicts, records, codeql_evidence, module=module_rel, commit=commit, fingerprints=fingerprints
+            ),
+            encoding="utf-8",
         )
     (work_dir / "checks.log").write_text(log.getvalue(), encoding="utf-8")
     if args.verbose:

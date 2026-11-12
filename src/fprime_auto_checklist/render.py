@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 from . import __version__
 from .checklist import CHECKLIST_VERSION, SECTIONS
+from .fingerprint import format_fingerprints
 from .results import NA, NO, REVIEW, STATUS_LABELS, UNCHECKED, YES, CodeqlEvidence, Verdict, summarize, verdicts_to_json
 
 LEGEND = (
@@ -38,6 +39,7 @@ def render_markdown(
     contributors: str = "",
     now: Optional[dt.datetime] = None,
     strip_prefix: str = "",
+    fingerprints: Optional[Dict[str, str]] = None,
 ) -> str:
     """Render the checklist; ``strip_prefix`` (the project root) is removed from paths in notes."""
     now = now or dt.datetime.now(dt.timezone.utc)
@@ -56,6 +58,10 @@ def render_markdown(
         + ". "
         + ", ".join(f"{STATUS_LABELS[s]} {n}" for s, n in counts.items())
         + "._",
+    ]
+    if fingerprints:
+        lines.append(f"_Section fingerprints (inputs each section judges): {format_fingerprints(fingerprints)}_")
+    lines += [
         "",
         "## Status Legend",
         "",

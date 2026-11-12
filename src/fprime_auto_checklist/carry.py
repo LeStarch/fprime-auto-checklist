@@ -17,9 +17,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from .fingerprint import SECTION_INPUTS
 from .results import NA, NO, REVIEW, UNCHECKED, YES, Verdict
 
 _HEADER_COMMIT_RE = re.compile(r"_Pre-filled by fprime-auto-checklist [^`]*`[^`]*` at `([0-9a-f]{7,40})`")
+_FINGERPRINTS_RE = re.compile(r"_Section fingerprints[^:]*:\s*((?:\d=[0-9a-f]+\s*)+)_")
 _ROW_RE = re.compile(r"^\|\s*(\d+\.\d+)\s*\|(.*)\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
 # Longest tokens first so "UNCHECKED" is not read as nothing and "N/A" is not read as "NO".
 _STATUS_TOKENS = (("UNCHECKED", UNCHECKED), ("REVIEW", REVIEW), ("N/A", NA), ("YES", YES), ("NO", NO))
@@ -36,6 +38,8 @@ class PreviousChecklist:
     #: Item ids the previous *tool run* left at REVIEW (from the JSON written next to the
     #: Markdown); None when no JSON is available and the notes must be relied on instead.
     review_then: Optional[Set[str]] = None
+    #: Per-section input fingerprints recorded when the previous checklist was rendered.
+    fingerprints: Dict[str, str] = field(default_factory=dict)
 
 
 def _status_of(cell: str) -> Optional[str]:
@@ -61,9 +65,18 @@ def parse_previous(path: Path, json_path: Optional[Path] = None) -> PreviousChec
     text = path.read_text(encoding="utf-8", errors="replace")
     header = _HEADER_COMMIT_RE.search(text)
     previous = PreviousChecklist(path=path, commit=header.group(1) if header else None)
+    fps = _FINGERPRINTS_RE.search(text)
+    if fps:
+        previous.fingerprints = dict(pair.split("=", 1) for pair in fps.group(1).split())
     sidecar = json_path or path.with_suffix(".json")
     if sidecar.is_file():
         previous.review_then = _review_rows_from_json(sidecar)
+        try:
+            doc = json.loads(sidecar.read_text(encoding="utf-8"))
+            if isinstance(doc.get("fingerprints"), dict):
+                previous.fingerprints = {str(k): str(v) for k, v in doc["fingerprints"].items()}
+        except (OSError, ValueError):
+            pass
     for line in text.splitlines():
         match = _ROW_RE.match(line)
         if not match:
@@ -102,16 +115,32 @@ def was_review_row(previous: PreviousChecklist, item_id: str, notes: List[str]) 
     return any(_REVIEW_NOTE_RE.match(n) for n in notes)
 
 
+def section_changed(
+    previous: PreviousChecklist, fingerprints: Optional[Dict[str, str]], section: str, fallback: Optional[bool]
+) -> Optional[bool]:
+    """Did the inputs of ``section`` change since the previous checklist?
+
+    Compares the section fingerprints when both sides recorded them; otherwise falls back to
+    the whole-module git comparison (``fallback``), or None when nothing can be compared."""
+    if fingerprints and section in fingerprints and section in previous.fingerprints:
+        return fingerprints[section] != previous.fingerprints[section]
+    return fallback
+
+
 def apply_previous(
     verdicts: List[Verdict],
     previous: PreviousChecklist,
     *,
     changed: Optional[bool],
     skipped: Optional[List[str]] = None,
+    fingerprints: Optional[Dict[str, str]] = None,
 ) -> List[str]:
     """Overwrite REVIEW verdicts with the reviewer's decision from ``previous``; returns carried item ids.
 
-    Decided rows that cannot be recognised as former review rows are appended to ``skipped``."""
+    A carried row is flagged STALE only when the inputs its own section judges changed
+    (per-section ``fingerprints``); ``changed`` is the whole-module fallback when the previous
+    checklist recorded no fingerprints.  Decided rows that cannot be recognised as former
+    review rows are appended to ``skipped``."""
     carried: List[str] = []
     reviewed_at = previous.commit[:12] if previous.commit else "an unknown commit"
     for verdict in verdicts:
@@ -127,10 +156,16 @@ def apply_previous(
             continue
         notes = [n for n in notes if not n.startswith("Carried from ") and not n.startswith("STALE")]
         notes.append(f"Carried from {previous.path.name} (reviewed at {reviewed_at}).")
-        if changed is True:
-            notes.append(notes.append(f"STALE: the component sources changed since {reviewed_at}; re-review."))
-        elif changed is None:
-            notes.append("STALE?: could not compare the component sources with the reviewed commit; re-review.")
+        section = verdict.item.section
+        inputs = SECTION_INPUTS.get(section, "the component")
+        section_state = section_changed(previous, fingerprints, section, changed)
+        if section_state is True:
+            notes.append(f"STALE: {inputs} changed since {reviewed_at}; re-review.")
+        elif section_state is None:
+            notes.append(
+                f"STALE?: cannot tell whether {inputs} changed since the review "
+                "(no fingerprint or commit to compare); re-review."
+            )
         verdict.status = status
         verdict.notes = notes
         carried.append(verdict.item.id)

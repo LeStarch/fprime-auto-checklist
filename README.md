@@ -193,9 +193,15 @@ Apache-2.0 (see `LICENSE`, `NOTICE`).
 checklist.  Rows the tool leaves at `REVIEW` take the reviewer's decision from
 that file (`YES`, `NO` or `N/A` written in the Status column, with the Notes
 kept verbatim); every carried row is stamped `Carried from <file> (reviewed at
-<commit>)` and marked `STALE:` when the component's sources changed between
-that commit and the one being checked, so a judgement made on older code is
-re-examined rather than silently trusted.  Tool-decided rows are always
+<commit>)` and marked `STALE:` when the inputs *its section* judges changed
+since that checklist was rendered -- section 1 (requirements) the SDD, section
+2 (design) the SDD and FPP model, section 3 (implementation) the non-test
+sources, section 4 (unit testing) the `test/ut` sources -- so a judgement made
+on older artefacts is re-examined rather than silently trusted, while an
+unrelated change elsewhere in the component does not disturb it.  The
+per-section content fingerprints are recorded in the rendered Markdown header
+and in the JSON; without them the comparison falls back to a whole-module git
+diff between the recorded and current commits.  Tool-decided rows are always
 recomputed, and a decided row is only taken as a reviewer's when the previous
 run had left it at `REVIEW` (known from the JSON written beside the Markdown,
 `--previous-json` to point elsewhere; without it, from the `CL-n:` rule text
