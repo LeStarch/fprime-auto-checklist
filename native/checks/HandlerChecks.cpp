@@ -104,7 +104,7 @@ public:
   }
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Handler = R.Nodes.getNodeAs<FunctionDecl>("handler");
-    if (!isFprimeHandler(Handler->getName()))
+    if (!isFprimeHandler(identName(Handler)))
       return;
     const auto *Then = R.Nodes.getNodeAs<Stmt>("then");
     if (!hasFailureReport(Then) || transfersControl(Then))
@@ -126,7 +126,7 @@ private:
       return false;
     if (const auto *C = dyn_cast<CallExpr>(S))
       if (const FunctionDecl *F = C->getDirectCallee();
-          F && F->getName() == "cmdResponse_out" && C->getNumArgs() >= 3 && isFailureResponse(C->getArg(2)))
+          F && identName(F) == "cmdResponse_out" && C->getNumArgs() >= 3 && isFailureResponse(C->getArg(2)))
         return true;
     for (const Stmt *Child : S->children())
       if (hasFailureReport(Child))
@@ -161,7 +161,7 @@ private:
       return;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(S))
       if (const auto *EC = dyn_cast<EnumConstantDecl>(DRE->getDecl()))
-        (EC->getName() == "OK" ? Ok : NonOk) = true;
+        (identName(EC) == "OK" ? Ok : NonOk) = true;
     for (const Stmt *C : S->children())
       enumConstants(C, NonOk, Ok);
   }
@@ -193,7 +193,7 @@ public:
     const auto *Fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
     if (!isBlockingCall(Call) || !applies(Fn))
       return;
-    diag(Call->getExprLoc(), "Blocking operation %0 called in %1 %2.") << calleeName(Call) << contextKind() << Fn->getName();
+    diag(Call->getExprLoc(), "Blocking operation %0 called in %1 %2.") << calleeName(Call) << contextKind() << identName(Fn);
   }
   virtual bool applies(const FunctionDecl *Fn) const = 0;
   virtual StringRef contextKind() const = 0;
@@ -207,7 +207,7 @@ public:
 class NoBlockingInSchedHandlerCheck : public NoBlockingCheckBase {
 public:
   using NoBlockingCheckBase::NoBlockingCheckBase;
-  bool applies(const FunctionDecl *Fn) const override { return isSchedInHandler(Fn->getName()); }
+  bool applies(const FunctionDecl *Fn) const override { return isSchedInHandler(identName(Fn)); }
   StringRef contextKind() const override { return "rate-group handler"; }
 };
 
@@ -224,14 +224,14 @@ public:
     collect(Fn->getBody(), FileAccesses, Locks);
     if (FileAccesses.empty())
       return;
-    bool Sched = isSchedInHandler(Fn->getName());
+    bool Sched = isSchedInHandler(identName(Fn));
     std::set<const CallExpr *> Locked;
     if (!Sched && !Locks.empty())
       lockedFileAccesses(Fn, *R.Context, Locks, Locked);
     for (const CallExpr *FA : FileAccesses) {
       if (Sched)
         diag(FA->getExprLoc(), "Synchronous file access %0 performed in rate-group handler %1.")
-            << calleeName(FA) << Fn->getName();
+            << calleeName(FA) << identName(Fn);
       else if (Locked.count(FA))
         diag(FA->getExprLoc(), "Synchronous file access %0 performed in a critical region (lock held).") << calleeName(FA);
     }

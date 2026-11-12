@@ -38,7 +38,7 @@ bool containsStmt(const Stmt *Outer, const Stmt *Inner) {
 StringRef typedefName(QualType T) {
   T = T.getNonReferenceType().getLocalUnqualifiedType();
   if (const auto *TT = T->getAs<TypedefType>())
-    return TT->getDecl()->getName();
+    return identName(TT->getDecl());
   return StringRef();
 }
 
@@ -198,9 +198,9 @@ private:
   static bool isCyclicHandler(const FunctionDecl *F) {
     if (!F->getDeclName().isIdentifier())
       return false;
-    if (isSchedInHandler(F->getName()))
+    if (isSchedInHandler(identName(F)))
       return true;
-    std::string Lower = F->getName().lower();
+    std::string Lower = identName(F).lower();
     static const std::regex Pattern(".*sched.*_handler|run.*_handler|.*cycle.*_handler|.*tick.*_handler");
     return std::regex_match(Lower, Pattern);
   }
@@ -210,7 +210,7 @@ private:
       return false;
     llvm::SmallVector<const MemberExpr *, 8> Accesses;
     collect<MemberExpr>(Def->getBody(), Accesses);
-    return llvm::any_of(Accesses, [](const MemberExpr *ME) { return ME->getMemberDecl()->getName().endswith("Throttle"); });
+    return llvm::any_of(Accesses, [](const MemberExpr *ME) { return identName(ME->getMemberDecl()).endswith("Throttle"); });
   }
   // The FPP `throttle` keyword autocodes an `m_<Event>Throttle` counter into the component base.
   static bool hasThrottleField(const CXXMethodDecl *Logger) {
@@ -219,7 +219,7 @@ private:
     const CXXRecordDecl *RD = Logger->getParent();
     while (RD && RD->hasDefinition()) {
       for (const FieldDecl *FD : RD->fields())
-        if (FD->getName().endswith("Throttle") && FD->getName().contains(Event))
+        if (identName(FD).endswith("Throttle") && identName(FD).contains(Event))
           return true;
       RD = RD->getNumBases() == 1 ? RD->bases_begin()->getType()->getAsCXXRecordDecl() : nullptr;
     }

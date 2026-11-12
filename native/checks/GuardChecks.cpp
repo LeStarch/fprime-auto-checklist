@@ -335,7 +335,7 @@ public:
 private:
   static bool whitelisted(const FunctionDecl *F) {
     if (F->getDeclName().isIdentifier())
-      return F->getName().startswith("__builtin_");
+      return identName(F).startswith("__builtin_");
     if (F->isOverloadedOperator()) {
       switch (F->getOverloadedOperator()) {
       case OO_Equal: case OO_PlusEqual: case OO_MinusEqual: case OO_StarEqual: case OO_SlashEqual:
@@ -675,7 +675,7 @@ public:
     diag(Sub->getBeginLoc(),
          "Unsigned subtraction from %0() with no check that it is at least the subtracted constant; this underflows "
          "instead of going negative when the size is too small.")
-        << Minuend->getDirectCallee()->getName();
+        << identName(Minuend->getDirectCallee());
   }
 
 private:
@@ -685,7 +685,7 @@ private:
       return false;
     static const char *Names[] = {"getSize", "getBuffLength", "getDataSize", "getBuffCapacity",
                                   "getDeserializeSizeLeft", "getSerializeSizeLeft"};
-    return llvm::is_contained(Names, F->getName());
+    return llvm::is_contained(Names, identName(F));
   }
   static const Decl *receiver(const CallExpr *C) {
     const auto *MC = dyn_cast<CXXMemberCallExpr>(C);
@@ -710,7 +710,7 @@ private:
           Acc = dyn_cast<CallExpr>(VD->getInit()->IgnoreParenImpCasts());
     if (!Acc || !isSizeAccessor(Acc))
       return false;
-    return Acc->getDirectCallee()->getName() == Minuend->getDirectCallee()->getName() && sameReceiver(Acc, Minuend);
+    return identName(Acc->getDirectCallee()) == identName(Minuend->getDirectCallee()) && !identName(Acc->getDirectCallee()).empty() && sameReceiver(Acc, Minuend);
   }
   static bool hasCheck(const CallExpr *Minuend, double K, const FunctionDecl *Fn, ASTContext &Ctx) {
     llvm::SmallVector<const BinaryOperator *, 16> Ops;

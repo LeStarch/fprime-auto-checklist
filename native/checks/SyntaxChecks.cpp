@@ -28,7 +28,7 @@ public:
   void check(const MatchFinder::MatchResult &R) override {
     const auto *Call = R.Nodes.getNodeAs<CallExpr>("call");
     diag(Call->getBeginLoc(), "Call to %0; use F Prime events/logging instead.")
-        << Call->getDirectCallee()->getName();
+        << identName(Call->getDirectCallee());
   }
 };
 
@@ -173,7 +173,7 @@ public:
     for (const Decl *D : DS->decls())
       if (const auto *Fn = dyn_cast<FunctionDecl>(D))
         diag(DS->getBeginLoc(), "Function %0 is declared inside the body of function %1.")
-            << Fn->getName() << R.Nodes.getNodeAs<FunctionDecl>("outer")->getName();
+            << identName(Fn) << identName(R.Nodes.getNodeAs<FunctionDecl>("outer"));
   }
 };
 
@@ -215,7 +215,7 @@ public:
   void check(const MatchFinder::MatchResult &R) override {
     const auto *FD = R.Nodes.getNodeAs<FieldDecl>("field");
     diag(FD->getLocation(), "Data member %0 of class %1 is public; consider making it private or protected.")
-        << FD->getName() << R.Nodes.getNodeAs<CXXRecordDecl>("class")->getName();
+        << identName(FD) << identName(R.Nodes.getNodeAs<CXXRecordDecl>("class"));
   }
 };
 
@@ -331,7 +331,7 @@ public:
     if (const auto *BO = dyn_cast<BinaryOperator>(Op))
       if (BO->getOpcode() == BO_Comma)
         return; // CodeQL's CommaExpr is not an Operation
-    diag(Op->getExprLoc(), "Floating-point operation in interrupt service routine %0.") << Fn->getName();
+    diag(Op->getExprLoc(), "Floating-point operation in interrupt service routine %0.") << identName(Fn);
   }
 };
 
@@ -352,10 +352,10 @@ public:
       if (Body->body_empty() || !isa<ReturnStmt>(Body->body_back()))
         ++Count;
     if (HasLoop)
-      diag(Fn->getLocation(), "Interrupt service routine %0 contains a loop; keep ISRs minimal.") << Fn->getName();
+      diag(Fn->getLocation(), "Interrupt service routine %0 contains a loop; keep ISRs minimal.") << identName(Fn);
     else if (Count > 20)
       diag(Fn->getLocation(), "Interrupt service routine %0 has %1 statements; keep ISRs minimal.")
-          << Fn->getName() << Count;
+          << identName(Fn) << Count;
   }
 
 private:

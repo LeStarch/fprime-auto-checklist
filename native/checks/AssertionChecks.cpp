@@ -368,7 +368,7 @@ private:
       return false;
     if (const auto *C = dyn_cast<CallExpr>(S))
       if (const FunctionDecl *Callee = C->getDirectCallee())
-        if (Callee->getName().startswith("log_WARNING") || Callee->getName().startswith("log_FATAL"))
+        if (identName(Callee).startswith("log_WARNING") || identName(Callee).startswith("log_FATAL"))
           return true;
     for (const Stmt *Child : S->children())
       if (logsEvents(Child))

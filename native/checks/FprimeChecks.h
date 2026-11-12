@@ -19,6 +19,12 @@ namespace clang {
 namespace tidy {
 namespace fprime {
 
+/// Simple-identifier name of a declaration, or "" for operators, constructors,
+/// conversion functions and other special names (where getName() asserts).
+inline llvm::StringRef identName(const clang::NamedDecl *D) {
+  return D && D->getDeclName().isIdentifier() ? D->getName() : llvm::StringRef();
+}
+
 void registerFprimeChecks(ClangTidyCheckFactories &Factories);
 
 // Spelling of the assertion macros CodeQL's FwAssert/Assertion classes recognise.
