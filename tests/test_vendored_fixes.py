@@ -9,6 +9,7 @@ from fprime_auto_checklist.checks import (
     check_coverage_threshold,
     check_hardware_run,
     check_include_dependencies,
+    check_leaks,
     check_req_ports,
 )
 
@@ -148,4 +149,28 @@ def test_i1_build_cache_still_reports_undeclared_library(tmp_path, capsys):
 
 def test_u5_reads_fprime_util_summary_txt():
     assert check_coverage_threshold.line_percent_txt("lines: 98.7% (223 out of 226)\nbranches: 91.8%") == 98.7
+    table = (
+        "File   Lines  Exec  Cover  Missing\nX.cpp\n   226  223  98%  293\n"
+        + "-" * 20
+        + "\nTOTAL      226     223    98%\n"
+    )
+    assert check_coverage_threshold.line_percent_txt(table) == 98.67
     assert check_coverage_threshold.line_percent_txt("no coverage here") is None
+
+
+def test_u4_finds_ut_executable_in_project_cache(tmp_path):
+    (tmp_path / "settings.ini").write_text("[fprime]\n")
+    module = tmp_path / "Lib" / "Comp"
+    module.mkdir(parents=True)
+    exe = tmp_path / "build-fprime-automatic-native-ut" / "bin" / "Linux" / "Lib_Comp_ut_exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+    assert check_leaks.ut_executables(module) == [exe]
+    assert check_leaks.leaks_in("definitely lost: 0 bytes\nERROR SUMMARY: 0 errors") == []
+    assert check_leaks.leaks_in("definitely lost: 1,024 bytes in 2 blocks") == ["definitely lost: 1,024"]
+    assert check_leaks.leaks_in("SUMMARY: LeakSanitizer: 48 byte(s) leaked in 1 allocation(s).") == [
+        "SUMMARY: LeakSanitizer: 48 byte(s) leaked in 1 allocation(s)."
+    ]
+    assert check_leaks.is_asan_instrumented(exe) is False
+    exe.write_bytes(b"\x7fELF__asan_init")
+    assert check_leaks.is_asan_instrumented(exe) is True

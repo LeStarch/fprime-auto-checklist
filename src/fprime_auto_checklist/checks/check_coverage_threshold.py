@@ -19,10 +19,15 @@ from pathlib import Path
 from ._report import finish, make_parser
 
 _LINES_RE = re.compile(r"^lines:\s*([0-9.]+)%", re.MULTILINE)
+_TOTAL_RE = re.compile(r"^TOTAL\s+(\d+)\s+(\d+)\s+(\d+)%", re.MULTILINE)
 
 
 def line_percent_txt(text: str):
-    """Line percentage from a gcovr ``--txt``/``--print-summary`` report (``lines: 98.7% (223 out of 226)``)."""
+    """Line percentage from gcovr text output: the ``--txt`` table's ``TOTAL lines exec cover%``
+    row (exact ratio) or a ``--print-summary`` ``lines: 98.7% (...)`` line."""
+    total = _TOTAL_RE.search(text)
+    if total and int(total.group(1)) > 0:
+        return round(100.0 * int(total.group(2)) / int(total.group(1)), 2)
     match = _LINES_RE.search(text)
     return float(match.group(1)) if match else None
 

@@ -29,8 +29,15 @@ Local changes to the vendored check scripts (all to be upstreamed):
   `compile_commands.json`, module names come from the project/framework roots, and
   dependencies FPP adds itself (`fpp-cache/direct.txt`, `framework.txt`) plus the
   implicit `Fw_Types` are not reported;
+* `check_leaks.py` (U4, item 4.4): `fprime-util check --leak` does not exist in
+  fprime-tools; the check now runs the module's `*_ut_exe` from the `-ut` build
+  cache (building it with `fprime-util build --ut` when missing) under
+  LeakSanitizer when the executable is AddressSanitizer-instrumented (the F Prime
+  default for native UT builds, incompatible with valgrind) or under valgrind
+  otherwise;
 * `check_coverage_threshold.py` (U5, item 4.5): reads `coverage/summary.txt`
-  written by `fprime-util check --coverage` before falling back to its own gcovr run;
+  (gcovr `--txt` table, `TOTAL` row) written by `fprime-util check --coverage`
+  before falling back to its own gcovr run;
 * `check_req_ports.py` (R6, item 2.13): a port counts as having a known use-case
   when a requirement names it, when its SDD port-table row has a description,
   or when it is a companion (`<base>Complete|Done|Callback|Response`) of a
