@@ -47,12 +47,12 @@ def _rec(cid, status, failures=(), detail=""):
 
 
 def test_pattern_scopes_composite_check_failures():
-    item = checklist.ITEMS_BY_ID["1.4"]
-    records = {"R9": _rec("R9", "fail", ["no performance requirement; add one"])}
+    item = checklist.ITEMS_BY_ID["1.8"]
+    records = {"D9": _rec("D9", "fail", ["no block diagram (add one)"])}
     assert results.judge_item(item, records, results.CodeqlEvidence(ran=False, reason="x")).status == results.YES
-    records = {"R9": _rec("R9", "fail", ["no memory requirement; add one"])}
+    records = {"D9": _rec("D9", "fail", ["no external interfaces / references section"])}
     v = results.judge_item(item, records, results.CodeqlEvidence(ran=False, reason="x"))
-    assert v.status == results.NO and "memory" in v.notes[0]
+    assert v.status == results.NO and "external interfaces" in v.notes[0]
 
 
 def test_skip_reason_distinguishes_not_applicable_from_not_run():
@@ -87,7 +87,7 @@ def test_codeql_item_statuses():
 
 def test_review_items_are_never_yes():
     ev = results.CodeqlEvidence(ran=True)
-    for item_id in ("3.21", "3.23", "3.33", "3.38", "4.3"):
+    for item_id in ("1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "3.21", "3.23", "3.33", "3.38", "4.3"):
         assert results.judge_item(checklist.ITEMS_BY_ID[item_id], {}, ev).status == results.REVIEW
 
 
@@ -114,8 +114,6 @@ def test_evidence_helpers():
 
 def test_no_requirements_is_a_failure_not_na():
     ev = results.CodeqlEvidence(ran=False, reason="x")
-    rec = {"R9": _rec("R9", "skip", detail="no requirements found")}
-    assert results.judge_item(checklist.ITEMS_BY_ID["1.4"], rec, ev).status == results.NO
     rec = {"R8": _rec("R8", "skip", detail="no requirements found")}
     assert results.judge_item(checklist.ITEMS_BY_ID["1.7"], rec, ev).status == results.NO
 

@@ -90,6 +90,15 @@ REVIEW_RULES = {
         "configuration constants, command-argument ranges, queue depths) a unit test must "
         "exercise the limit value and one past it."
     ),
+    "CL-6": (
+        "Requirement coverage (1.1-1.6): read every requirement in the SDD and decide "
+        "whether the aspect this item names (behavior, input data, output data, memory, "
+        "hardware I/O, runtime performance) is constrained by at least one of them, or is "
+        "explicitly declared not applicable with a rationale. Deciding which aspect a "
+        "shall-statement constrains is a judgement; no column or keyword convention is "
+        "imposed on the requirements table. R1-R6 (traceability of ports, commands, events, "
+        "telemetry and parameters to requirements) and R8 (1.7) remain tool-checked."
+    ),
     "HW-RUN": (
         "Run the flight deployment that instantiates this component on the target "
         "hardware and record platform, deployment, commit, date, result and tester in "
@@ -103,37 +112,37 @@ ITEMS: Tuple[Item, ...] = (
         "1.1",
         "1",
         "Do requirements exist in the component SDD that define the component's expected operational behaviors?",
-        (check("R9", r"no behavior requirement|no Kind column"), check("R1")),
+        (review("CL-6"),),
     ),
     Item(
         "1.2",
         "1",
         "Do requirements exist in the component SDD that define input data expected to be received and handled by the component?",
-        (check("R9", r"no input requirement|no Kind column"), check("R6"), check("R4")),
+        (review("CL-6"),),
     ),
     Item(
         "1.3",
         "1",
         "Do requirements exist in the component SDD that define output data expected to be produced by the component?",
-        (check("R9", r"no output requirement|no Kind column"), check("R2"), check("R3"), check("R5")),
+        (review("CL-6"),),
     ),
     Item(
         "1.4",
         "1",
         "Do requirements exist in the component SDD for all relevant memory usage constraints for the component?",
-        (check("R9", r"no memory requirement|no Kind column"),),
+        (review("CL-6"),),
     ),
     Item(
         "1.5",
         "1",
         "Do requirements exist in the component SDD for all relevant hardware I/O usage constraints for the component?",
-        (check("R9", r"no hardware I/O requirement|no Kind column"),),
+        (review("CL-6"),),
     ),
     Item(
         "1.6",
         "1",
         "Do requirements exist in the component SDD for all relevant runtime performance constraints for the component?",
-        (check("R9", r"no performance requirement|no Kind column"),),
+        (review("CL-6"),),
     ),
     Item("1.7", "1", "Does every requirement specify a verification method?", (check("R8"),)),
     Item(

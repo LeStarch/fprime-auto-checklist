@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from . import __version__
 from . import clang_tidy as ct
 from . import codeql as cq
+from .carry import apply_previous, parse_previous, sources_changed
 from .checklist import ITEMS, codeql_rule_ids
 from .render import render_json, render_markdown
 from .results import NO, CodeqlEvidence, judge_all
@@ -47,6 +48,20 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
     )
     build.add_argument("--jobs", "-j", type=int, default=None, help="Parallel build jobs")
     build.add_argument("--coverage-threshold", type=float, default=None, help="Line coverage percent required by U5")
+    parser.add_argument(
+        "--previous",
+        type=Path,
+        default=None,
+        help="Previous rendering of this checklist: reviewer decisions (YES/NO/N/A) on REVIEW rows are kept, "
+        "stamped with the commit they were made at and flagged if the component changed since",
+    )
+    parser.add_argument(
+        "--previous-json",
+        type=Path,
+        default=None,
+        help="JSON written by the previous run (default: <previous>.json beside it); identifies the rows "
+        "the tool had left at REVIEW so older tool decisions are never carried as reviewer decisions",
+    )
     build.add_argument("--artifacts-dir", type=Path, default=None, help="Published unit-test artifacts root (U1)")
     ci = parser.add_argument_group("CI status (C3; needs GITHUB_TOKEN)")
     ci.add_argument("--repo", default=None, help="owner/name (default: origin remote)")
@@ -194,6 +209,17 @@ def cmd_run(args: argparse.Namespace) -> int:
     verdicts = judge_all(records, codeql_evidence)
 
     commit = args.sha or _git_head(project)
+    if args.previous is not None:
+        previous = parse_previous(args.previous, args.previous_json)
+        changed = sources_changed(project, module_rel, previous.commit, commit)
+        skipped: list = []
+        carried = apply_previous(verdicts, previous, changed=changed, skipped=skipped)
+        log.write(f"previous checklist {args.previous}: carried {len(carried)} review decision(s) {carried}\n")
+        if skipped:
+            log.write(
+                f"previous checklist: {skipped} are decided but were not review rows of the previous run "
+                "(keep the CL-n rule text in Notes, or pass --previous-json); not carried\n"
+            )
     markdown = render_markdown(
         verdicts,
         component=module.name,

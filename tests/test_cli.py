@@ -249,11 +249,12 @@ def test_pattern_drift_missing_sdd(tmp_path):
     project, widget = _copy_widget(tmp_path)
     (widget / "docs" / "sdd.md").unlink()
     statuses = _statuses(project, tmp_path)
-    for item in ("1.1", "1.4", "1.7", "2.1", "2.2", "2.7", "2.8", "2.10", "2.15"):
+    for item in ("1.7", "2.1", "2.2", "2.7", "2.8", "2.10", "2.15"):
         assert statuses[item] == "NO", item
+    assert statuses["1.1"] == "REVIEW"  # requirement coverage is a reviewer judgement, SDD or not
 
 
-def test_pattern_drift_diagrams_and_kinds(tmp_path):
+def test_pattern_drift_diagrams(tmp_path):
     project, widget = _copy_widget(tmp_path)
     sdd = widget / "docs" / "sdd.md"
     text = sdd.read_text(encoding="utf-8")
@@ -263,9 +264,8 @@ def test_pattern_drift_diagrams_and_kinds(tmp_path):
         for line in text.splitlines()
         if "mermaid" not in line and "sequenceDiagram" not in line and "-->" not in line and "->>" not in line
     )
-    text = text.replace("| Memory |", "| |").replace("| Performance |", "| |")
     sdd.write_text(text, encoding="utf-8")
     statuses = _statuses(project, tmp_path)
     assert statuses["2.2"] == "NO" and statuses["2.7"] == "NO"
-    assert statuses["1.4"] == "NO" and statuses["1.6"] == "NO"
+    assert statuses["1.4"] == "REVIEW" and statuses["1.6"] == "REVIEW"
     assert statuses["1.7"] == "YES"

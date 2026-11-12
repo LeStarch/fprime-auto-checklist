@@ -7,6 +7,8 @@ LLM reviewer.
 * **CodeQL** — the F Prime JPL-standard query pack (`cpp/fprime/*`, vendored
   from [nasa/fprime](https://github.com/nasa/fprime) `.github/codeql/`) plus
   one stock `codeql/cpp-queries` rule decide 31 implementation items.
+  Requirement coverage (1.1-1.6) is a reviewer judgement (`REVIEW`, rule CL-6):
+  no column or keyword convention is imposed on the requirements table.
 * **Check scripts** — the `component-checks` scripts (vendored from
   [nasa/fprime-actions](https://github.com/nasa/fprime-actions)) decide 37
   requirements / design / build / close-out items from the FPP model, the SDD,
@@ -184,3 +186,17 @@ vendored code under `queries/` and `checks/` (see `VENDORED.md`, `NOTICE`).
 ## License
 
 Apache-2.0 (see `LICENSE`, `NOTICE`).
+
+## Carrying reviewer decisions forward
+
+`run --previous <earlier-checklist.md>` reads an earlier rendering of the same
+checklist.  Rows the tool leaves at `REVIEW` take the reviewer's decision from
+that file (`YES`, `NO` or `N/A` written in the Status column, with the Notes
+kept verbatim); every carried row is stamped `Carried from <file> (reviewed at
+<commit>)` and marked `STALE:` when the component's sources changed between
+that commit and the one being checked, so a judgement made on older code is
+re-examined rather than silently trusted.  Tool-decided rows are always
+recomputed, and a decided row is only taken as a reviewer's when the previous
+run had left it at `REVIEW` (known from the JSON written beside the Markdown,
+`--previous-json` to point elsewhere; without it, from the `CL-n:` rule text
+still present in Notes) -- so an older tool decision is never carried forward.
