@@ -119,7 +119,7 @@ def test_closeout_queues_every_tool_row_for_audit_and_audits_lapse(tmp_path):
     doc = _load(out)
     by_id = {i["id"]: i for i in doc["items"]}
     assert by_id["2.12"]["decision"]["kind"] == "audit" and by_id["2.12"]["decision"]["tool_status"] == "NO"
-    assert by_id["2.12"]["notes"] == by_id["2.12"]["tool_notes"]  # confirmed audit: silent
+    assert by_id["2.12"]["notes"] == ["Confirmed. [D4]"]  # confirmed NO: the auditor's line replaces the finding text
     assert by_id["3.3"]["status"] == "N/A" and by_id["3.3"]["notes"][0].startswith("Audit (")
     assert len(doc["queue"]) == 71
     rc = cli.main(["decide", "--checklist", str(out), "--item", "3.4", "--status", "UNCHECKED", "--note", "not run"])

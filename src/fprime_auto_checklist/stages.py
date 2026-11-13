@@ -19,6 +19,7 @@ was made against, so staleness is judged per row on the next run.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -144,6 +145,9 @@ def apply_decisions(
             if decision.status in _AUDIT_STATUSES and decision.status != verdict.status:
                 verdict.notes = [f"Audit ({decision.stamp()}): " + " ".join(decision.notes)]
                 verdict.status = decision.status
+            elif verdict.status in (NO, UNCHECKED) and decision.notes:
+                # The auditor's one-line summary replaces the tool's finding text; the rule id stays.
+                verdict.notes = [" ".join(decision.notes) + _rule_suffix(verdict.notes)]
             outcome[verdict.item.id] = "carried"
             continue
         if verdict.status != REVIEW or decision.status not in _DECIDED:
@@ -163,6 +167,21 @@ def apply_decisions(
         verdict.status = decision.status
         verdict.notes = notes
     return outcome
+
+
+_RULE_ID_RE = re.compile(r"`([^`]+)`|^([A-Z]{1,3}\d{1,2})\b")
+
+
+def _rule_suffix(tool_notes: List[str]) -> str:
+    """`` [rule]`` naming the tool rule(s) behind a finding, from the tool's own notes."""
+    ids: List[str] = []
+    for note in tool_notes:
+        m = _RULE_ID_RE.search(note)
+        if m:
+            rule = m.group(1) or m.group(2)
+            if rule not in ids:
+                ids.append(rule)
+    return f" [{', '.join(ids)}]" if ids else ""
 
 
 def mark_deferred(verdicts: List[Verdict], stage: Optional[str]) -> List[str]:
