@@ -28,7 +28,7 @@ _ASCII_DIAGRAM_RE = re.compile(r"```[a-z]*\s*\n(?:[^`]*[\u2500-\u257f\u25a0-\u25
 # An external document cited by identifier: "datasheet 002-26764 Rev. *D", "ICD 1234-A", "FDD-07".
 _EXTERNAL_DOC_RE = re.compile(
     r"\b(datasheet|data sheet|ICD|FDD|interface control document|user manual|reference manual)\b"
-    r"[ :#-]*(?:(?:no\.?|number|doc\.?)\s*)?([A-Z]{0,4}\d[\w./-]*(?:\s+Rev\.?\s*\*?\w+)?)",
+    r"[ :#-]*(?:(?:no\.?|number|doc\.?)\s*)?([A-Z]{0,4}\d[\w/-]*(?:\.[\w/-]+)*(?:\s+Rev\.?\s*\*?\w+)?)",
     re.IGNORECASE,
 )
 _SEQUENCE_RE = re.compile(r"```mermaid\s*\n\s*sequenceDiagram|```(plantuml|puml)\s*\n[^`]*->", re.IGNORECASE)
