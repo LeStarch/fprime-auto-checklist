@@ -23,6 +23,7 @@ UNCHECKED, it is never argued into a YES.
 
 ## Procedure
 
+
 1. Run against the previous checklist:
 
    ```bash
@@ -79,6 +80,8 @@ The rendered table is read by people; keep it sparse.
   renders as one `Audit (...)` line from your `--note`.
 
 ## Rules
+- `docs/checklist.md` stays beside `docs/sdd.md`; the SDD's last line is
+  `Component Development Checklist: [checklist.md](checklist.md)` — restore it if an SDD edit dropped it.
 
 - An audit reads the evidence; it does not re-run the analysis to make a
   finding disappear. Fix the code or the document, re-run the tool, and the
