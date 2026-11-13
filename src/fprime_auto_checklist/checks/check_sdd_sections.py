@@ -9,7 +9,8 @@ Checks, against ``docs/sdd.md`` and the FPP model:
     * every FPP state machine named in the SDD, and a use-case / scenario
       / behavior section,
     * the component kind (active/passive/queued) stated and matching FPP,
-    * an external-interfaces / ICD / references section or an explicit
+    * an external-interfaces / ICD / references section, a cited external
+      document (``datasheet 002-26764 Rev. *D``, ``ICD-1234``, ...) or an explicit
       ``External interfaces: None``.
 """
 
@@ -24,6 +25,12 @@ _IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)|<img\s")
 _BLOCK_DIAGRAM_RE = re.compile(r"```mermaid\s*\n\s*(graph|flowchart|classDiagram|C4)", re.IGNORECASE)
 # ASCII-art block diagram: a plain fenced block containing box-drawing / port-marker glyphs
 _ASCII_DIAGRAM_RE = re.compile(r"```[a-z]*\s*\n(?:[^`]*[\u2500-\u257f\u25a0-\u25ff]){3,}[^`]*```")
+# An external document cited by identifier: "datasheet 002-26764 Rev. *D", "ICD 1234-A", "FDD-07".
+_EXTERNAL_DOC_RE = re.compile(
+    r"\b(datasheet|data sheet|ICD|FDD|interface control document|user manual|reference manual)\b"
+    r"[ :#-]*(?:(?:no\.?|number|doc\.?)\s*)?([A-Z]{0,4}\d[\w./-]*(?:\s+Rev\.?\s*\*?\w+)?)",
+    re.IGNORECASE,
+)
 _SEQUENCE_RE = re.compile(r"```mermaid\s*\n\s*sequenceDiagram|```(plantuml|puml)\s*\n[^`]*->", re.IGNORECASE)
 
 
@@ -31,6 +38,7 @@ def main(argv=None) -> int:
     parser = make_parser(__doc__)
     args = parser.parse_args(argv)
     failures = []
+    details = []
     sdd = load_sdd(args.module)
     if sdd is None:
         failures.append("no docs/sdd.md found")
@@ -59,14 +67,25 @@ def main(argv=None) -> int:
             for other in ("active", "passive", "queued"):
                 if other != kind and re.search(rf"\b{other}\s+component\b", prose):
                     failures.append(f"SDD calls the component '{other}' but FPP declares {name} {kind}")
-        if not (sdd.has_heading("external", "interface control", "icd", "reference") or sdd.declares_not_applicable("external interface", "icd", "fdd")):
-            failures.append("no external interfaces / references section (add one, or state 'External interfaces: None')")
+        cited = sorted({f"{m.group(1)} {m.group(2)}" for m in _EXTERNAL_DOC_RE.finditer(text)})
+        if cited:
+            details.append("external documents cited: " + "; ".join(cited))
+        if not (
+            cited
+            or sdd.has_heading("external", "interface control", "icd", "reference")
+            or sdd.declares_not_applicable("external interface", "icd", "fdd")
+        ):
+            failures.append(
+                "no external interfaces / references section or cited external document "
+                "(add one, cite the datasheet/ICD by number, or state 'External interfaces: None')"
+            )
     return finish(
         check_id="D9",
         name="SDD design sections present",
         category="design",
         module=args.module,
         failures=failures,
+        detail="; ".join(details),
         json_output=args.json_output,
     )
 

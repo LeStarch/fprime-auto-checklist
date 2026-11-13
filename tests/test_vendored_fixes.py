@@ -11,6 +11,7 @@ from fprime_auto_checklist.checks import (
     check_include_dependencies,
     check_leaks,
     check_req_ports,
+    check_sdd_sections,
 )
 
 
@@ -174,3 +175,10 @@ def test_u4_finds_ut_executable_in_project_cache(tmp_path):
     assert check_leaks.is_asan_instrumented(exe) is False
     exe.write_bytes(b"\x7fELF__asan_init")
     assert check_leaks.is_asan_instrumented(exe) is True
+
+
+def test_d9_accepts_a_cited_external_document_as_external_interface():
+    text = "Reads shall follow datasheet 002-26764 Rev. *D command set. See also ICD 1234-A."
+    cited = sorted({f"{m.group(1)} {m.group(2)}" for m in check_sdd_sections._EXTERNAL_DOC_RE.finditer(text)})
+    assert cited == ["ICD 1234-A", "datasheet 002-26764 Rev. *D"]
+    assert not check_sdd_sections._EXTERNAL_DOC_RE.search("the datasheet says nothing numbered here")
