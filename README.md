@@ -206,3 +206,21 @@ recomputed, and a decided row is only taken as a reviewer's when the previous
 run had left it at `REVIEW` (known from the JSON written beside the Markdown,
 `--previous-json` to point elsewhere; without it, from the `CL-n:` rule text
 still present in Notes) -- so an older tool decision is never carried forward.
+
+
+## External References table (item 1.8)
+
+Item 1.8 asks whether external interface or functional requirements live in
+other documents (ICDs, datasheets, FDDs).  The SDD states this in a table:
+
+```markdown
+## External References
+| Document | Identifier / Revision | Type | Governs |
+|---|---|---|---|
+| Infineon CY15B102QN datasheet | 002-26764 Rev. *D | Datasheet | command set, write-enable sequence |
+```
+
+`Type` is Datasheet / ICD / FDD / Standard / Other; a single `None` row is the
+explicit waiver.  D9 copies the rows into the 1.8 note.  An SDD that only cites
+a document inline (`datasheet 002-26764 Rev. *D`) still passes, with the note
+"no External References table; cited inline"; an SDD with neither fails.

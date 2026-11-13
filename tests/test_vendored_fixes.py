@@ -182,3 +182,22 @@ def test_d9_accepts_a_cited_external_document_as_external_interface():
     cited = sorted({f"{m.group(1)} {m.group(2)}" for m in check_sdd_sections._EXTERNAL_DOC_RE.finditer(text)})
     assert cited == ["ICD 1234-A", "datasheet 002-26764 Rev. *D"]
     assert not check_sdd_sections._EXTERNAL_DOC_RE.search("the datasheet says nothing numbered here")
+
+
+def test_d9_external_references_table(tmp_path):
+    from fprime_auto_checklist.checks._sdd import load_sdd
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "sdd.md").write_text(
+        "# X\n\n## External References\n\n| Document | Identifier / Revision | Type | Governs |\n|---|---|---|---|\n"
+        "| Infineon CY15B102QN datasheet | 002-26764 Rev. *D | Datasheet | command set |\n"
+        "| Bus ICD | ICD-1234 | ICD | framing |\n"
+    )
+    rows = check_sdd_sections.external_references_table(load_sdd(tmp_path))
+    assert rows == ["Datasheet 002-26764 Rev. *D: Infineon CY15B102QN datasheet", "ICD ICD-1234: Bus ICD"]
+    (tmp_path / "docs" / "sdd.md").write_text(
+        "# X\n\n## External References\n\n| Document | Identifier | Type | Governs |\n|---|---|---|---|\n| None | - | - | no external interfaces |\n"
+    )
+    assert check_sdd_sections.external_references_table(load_sdd(tmp_path)) == []
+    (tmp_path / "docs" / "sdd.md").write_text("# X\n\nNo tables here.\n")
+    assert check_sdd_sections.external_references_table(load_sdd(tmp_path)) is None
