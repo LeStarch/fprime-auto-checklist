@@ -50,6 +50,10 @@ def main(argv=None) -> int:
         "--summary-json", type=Path, default=None,
         help="Existing gcovr --json-summary file to evaluate instead of running checks",
     )
+    parser.add_argument(
+        "--summary-txt", type=Path, default=None,
+        help="Existing fprime-util gcovr summary.txt to evaluate instead of running checks",
+    )
     args = parser.parse_args(argv)
 
     skipped_reason = None
@@ -59,7 +63,14 @@ def main(argv=None) -> int:
     summary_path = args.summary_json
     doc_override = None
     tempdir = None
-    if summary_path is None:
+    if args.summary_txt is not None:
+        pct = line_percent_txt(args.summary_txt.read_text(encoding="utf-8", errors="replace"))
+        if pct is None:
+            failures.append(f"cannot find a 'lines:' entry in {args.summary_txt}")
+        else:
+            doc_override = {"line_percent": pct}
+        detail = f"from {args.summary_txt}"
+    elif summary_path is None:
         if shutil.which("fprime-util") is None or shutil.which("gcovr") is None:
             skipped_reason = "fprime-util/gcovr not found on PATH and no --summary-json given"
         else:

@@ -187,6 +187,49 @@ vendored code under `queries/` and `checks/` (see `VENDORED.md`, `NOTICE`).
 
 Apache-2.0 (see `LICENSE`, `NOTICE`).
 
+## Stage-gated review (`--stage`, `decide`)
+
+The checklist is filled in three passes of the development process, each driven
+by a skill in `.github/skills/`:
+
+| Stage | When | Sections due | Skill |
+|---|---|---|---|
+| `design` | after the SDD and FPP model are approved | 1 Requirements, 2 Design | `fprime-checklist-design` |
+| `implementation` | after the code and unit tests | 1–4 | `fprime-checklist-implementation` |
+| `closeout` | after system testing / run-for-record | all, plus an audit of every tool-decided row | `fprime-checklist-closeout` |
+
+```bash
+fprime-auto-checklist run --module Svc/X --analyzer clang-tidy --stage design -o checklist.md
+fprime-auto-checklist decide --checklist checklist.md --item 1.4 --status YES --note "REQ-003 bounds the buffer."
+fprime-auto-checklist run --module Svc/X --analyzer clang-tidy --stage implementation --previous checklist.md -o checklist.md
+```
+
+`run --stage` marks REVIEW rows of later sections *deferred* and writes the
+**review queue** — the rows to decide now — to the Hand-off section and to the
+JSON sidecar (`queue`, each entry with its review rule text): undecided REVIEW
+rows of the due sections, carried decisions whose section inputs changed
+(`stale`), and at close-out every tool-decided row without a current audit
+(`audit`).
+
+`decide` records a decision in the JSON sidecar with the commit and the
+section fingerprint it was made against and re-renders the Markdown, so the
+table is never hand-edited. A decision on a tool-decided row is an **audit**:
+`confirmed` when the status matches, `overridden` otherwise (a note is
+required). On the next `run --previous`, review decisions carry (flagged
+`STALE:` and re-queued when their section's fingerprint changed) and audits
+hold only while the tool's verdict and the section fingerprint are unchanged —
+otherwise they lapse and the row is queued again. `--from decisions.json`
+records a batch.
+
+The checker performs exactly one build itself: `fprime-util generate` (when no
+`compile_commands.json` exists) and `fprime-util build` of the module, which
+the clang-tidy analysis needs; that build's output answers I2 (3.2). Every
+other performed step — unit-test run, coverage, leak check, topology build,
+hardware run, CI — is read from what the development process already produced
+(`coverage/summary.txt`, `docs/hardware-run.md`, the CI status) and is left
+`UNCHECKED "not done yet"` otherwise; the tool never runs them unless
+`--build` is given explicitly. `--no-prepare-build` disables the one build.
+
 ## Carrying reviewer decisions forward
 
 `run --previous <earlier-checklist.md>` reads an earlier rendering of the same

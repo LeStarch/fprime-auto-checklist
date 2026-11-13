@@ -10,6 +10,7 @@ from . import __version__
 from .checklist import CHECKLIST_VERSION, SECTIONS
 from .fingerprint import format_fingerprints
 from .results import NA, NO, REVIEW, STATUS_LABELS, UNCHECKED, YES, CodeqlEvidence, Verdict, summarize, verdicts_to_json
+from .stages import STAGES, Decision, QueueEntry, rule_text
 
 LEGEND = (
     (YES, "Item satisfied -- verified by a tool (or attested by the checked record)."),
@@ -40,8 +41,13 @@ def render_markdown(
     now: Optional[dt.datetime] = None,
     strip_prefix: str = "",
     fingerprints: Optional[Dict[str, str]] = None,
+    stage: Optional[str] = None,
+    queue: Optional[List[QueueEntry]] = None,
 ) -> str:
-    """Render the checklist; ``strip_prefix`` (the project root) is removed from paths in notes."""
+    """Render the checklist; ``strip_prefix`` (the project root) is removed from paths in notes.
+
+    ``stage`` names the development stage the run was made for and ``queue`` the rows the
+    reviewer must decide at that stage (rendered in the Hand-off section)."""
     now = now or dt.datetime.now(dt.timezone.utc)
     counts = summarize(verdicts)
     lines = [
@@ -61,6 +67,10 @@ def render_markdown(
     ]
     if fingerprints:
         lines.append(f"_Section fingerprints (inputs each section judges): {format_fingerprints(fingerprints)}_")
+    if stage:
+        lines.append(
+            f"_Stage: **{stage}** ({STAGES[stage]['title']}); sections due: {', '.join(STAGES[stage]['due'])}_"
+        )
     lines += [
         "",
         "## Status Legend",
@@ -98,6 +108,27 @@ def render_markdown(
             notes = "<br>".join(_cell(_strip(n, strip_prefix)) for n in v.notes)
             lines.append(f"| {v.item.id} | {_cell(v.item.text)} | {STATUS_LABELS[v.status]} | {notes} |")
 
+    if queue is not None:
+        lines += ["", "## Hand-off", ""]
+        if queue:
+            lines.append(
+                f"Review queue for the **{stage or 'closeout'}** stage ({len(queue)} row(s)); record each with "
+                "`fprime-auto-checklist decide`:"
+            )
+            lines.append("")
+            for entry in queue:
+                why = {"review": "review", "stale": "re-review (inputs changed)", "audit": "audit the tool's verdict"}[
+                    entry.reason
+                ]
+                rule = f" [{entry.rule}]" if entry.rule else ""
+                lines.append(f"- **{entry.id}** ({why}{rule}) \u2014 {STATUS_LABELS[entry.status]}")
+        else:
+            lines.append(f"Nothing to review at the **{stage or 'closeout'}** stage.")
+        deferred = [v for v in verdicts if v.status == REVIEW and v.item.id not in {e.id for e in queue}]
+        if deferred:
+            lines.append("")
+            lines.append("Deferred to a later stage: " + ", ".join(v.item.id for v in deferred) + ".")
+        return "\n".join(lines) + "\n"
     pending = [v for v in verdicts if v.status == REVIEW]
     if pending:
         lines += ["", "## Hand-off", "", "Items left for a human or LLM reviewer:", ""]
@@ -105,14 +136,36 @@ def render_markdown(
     return "\n".join(lines) + "\n"
 
 
-def render_json(verdicts: List[Verdict], records: Dict[str, dict], codeql: CodeqlEvidence, **meta) -> str:
+def render_json(
+    verdicts: List[Verdict],
+    records: Dict[str, dict],
+    codeql: CodeqlEvidence,
+    *,
+    tool_verdicts: Optional[List[Verdict]] = None,
+    decisions: Optional[Dict[str, Decision]] = None,
+    queue: Optional[List[QueueEntry]] = None,
+    **meta,
+) -> str:
+    """``tool_verdicts`` are the verdicts before any reviewer decision was applied (kept so
+    ``decide`` can re-derive the rendering); ``decisions`` are the recorded reviewer decisions."""
+    items = verdicts_to_json(verdicts)
+    tool_by_id = {v.item.id: v for v in (tool_verdicts or verdicts)}
+    for item in items:
+        tool = tool_by_id.get(item["id"])
+        if tool is not None:
+            item["tool_status"] = tool.status
+            item["tool_notes"] = list(tool.notes)
+        decision = (decisions or {}).get(item["id"])
+        if decision is not None:
+            item["decision"] = decision.to_json()
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "tool": {"name": "fprime-auto-checklist", "version": __version__},
         "checklist_version": CHECKLIST_VERSION,
         **meta,
         "summary": summarize(verdicts),
-        "items": verdicts_to_json(verdicts),
+        "items": items,
+        "queue": [dict(e.to_json(), rule_text=rule_text(e.rule)) for e in (queue or [])],
         "checks": records,
         "codeql": {
             "ran": codeql.ran,

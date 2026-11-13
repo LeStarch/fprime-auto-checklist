@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from .fingerprint import SECTION_INPUTS
 from .results import NA, NO, REVIEW, UNCHECKED, YES, Verdict
+from .stages import Decision, decisions_from_json
 
 _HEADER_COMMIT_RE = re.compile(r"_Pre-filled by fprime-auto-checklist [^`]*`[^`]*` at `([0-9a-f]{7,40})`")
 _FINGERPRINTS_RE = re.compile(r"_Section fingerprints[^:]*:\s*((?:\d=[0-9a-f]+\s*)+)_")
@@ -40,6 +41,10 @@ class PreviousChecklist:
     review_then: Optional[Set[str]] = None
     #: Per-section input fingerprints recorded when the previous checklist was rendered.
     fingerprints: Dict[str, str] = field(default_factory=dict)
+    #: Decisions recorded by ``decide`` in the JSON sidecar (item id -> Decision); these take
+    #: precedence over hand-edited Markdown rows.
+    decisions: Dict[str, "Decision"] = field(default_factory=dict)
+    stage: Optional[str] = None
 
 
 def _status_of(cell: str) -> Optional[str]:
@@ -75,7 +80,9 @@ def parse_previous(path: Path, json_path: Optional[Path] = None) -> PreviousChec
             doc = json.loads(sidecar.read_text(encoding="utf-8"))
             if isinstance(doc.get("fingerprints"), dict):
                 previous.fingerprints = {str(k): str(v) for k, v in doc["fingerprints"].items()}
-        except (OSError, ValueError):
+            previous.decisions = decisions_from_json(doc)
+            previous.stage = doc.get("stage")
+        except (OSError, ValueError, AttributeError):
             pass
     for line in text.splitlines():
         match = _ROW_RE.match(line)
@@ -144,7 +151,7 @@ def apply_previous(
     carried: List[str] = []
     reviewed_at = previous.commit[:12] if previous.commit else "an unknown commit"
     for verdict in verdicts:
-        if verdict.status != REVIEW:
+        if verdict.status != REVIEW or verdict.item.id in previous.decisions:
             continue
         row = previous.rows.get(verdict.item.id)
         if row is None or row[0] not in _DECIDED:

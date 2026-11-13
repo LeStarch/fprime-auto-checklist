@@ -86,6 +86,9 @@ class RunOptions:
     project: Path
     module: Path
     build: bool = False
+    #: Compiler output captured by the tool's own (clang-tidy) build of the module; scanned for
+    #: warnings by I2 when the full ``--build`` is not requested.
+    build_log: Optional[Path] = None
     deployments: List[Path] = field(default_factory=list)
     target_platforms: List[str] = field(default_factory=list)
     artifacts_dir: Optional[Path] = None
@@ -244,20 +247,80 @@ def run_checks(opts: RunOptions, work_dir: Path, log: io.StringIO) -> Dict[str, 
             log,
         )
 
+    threshold = ["--threshold", str(opts.coverage_threshold)] if opts.coverage_threshold is not None else []
     if opts.build:
         platforms = [a for p in opts.target_platforms for a in ("--target-platform", p)]
         _invoke(check_build_warnings, base + platforms + jobs, records_file, log)
         _invoke(check_leaks, base + jobs, records_file, log)
-        threshold = ["--threshold", str(opts.coverage_threshold)] if opts.coverage_threshold is not None else []
         _invoke(check_coverage_threshold, base + threshold, records_file, log)
         if opts.deployments:
             deployments = [a for d in opts.deployments for a in ("--deployment", str(d))]
             _invoke(check_topology_build, base + deployments + platforms + jobs, records_file, log)
+    else:
+        # Evidence-only: answer from what the development process already produced, never run it.
+        if opts.build_log is not None and opts.build_log.is_file():
+            _invoke(check_build_warnings, base + ["--log", str(opts.build_log)], records_file, log)
+        else:
+            _not_done(
+                records_file,
+                module,
+                "I2",
+                "Compiles without warnings",
+                "implementation",
+                "no build output to scan (the module was not built by this run)",
+            )
+        summary = opts.module / "coverage" / "summary.txt"
+        if summary.is_file():
+            _invoke(check_coverage_threshold, base + threshold + ["--summary-txt", str(summary)], records_file, log)
+        else:
+            _not_done(
+                records_file,
+                module,
+                "U5",
+                "Sufficient code coverage",
+                "unit-test",
+                "no coverage/summary.txt; 'fprime-util check --coverage' has not been run for the module",
+            )
+        _not_done(
+            records_file,
+            module,
+            "U4",
+            "Unit tests pass a memory leak check",
+            "unit-test",
+            "the leak check (unit-test executable under LeakSanitizer/valgrind) has not been run",
+        )
+        _not_done(
+            records_file,
+            module,
+            "C1",
+            "Component builds in the topology",
+            "close-out",
+            "no topology build performed by this run (pass --deployment with --build, "
+            "or the process builds the deployment)",
+        )
+    if opts.artifacts_dir is None:
+        _not_done(
+            records_file,
+            module,
+            "U1",
+            "Unit-test results published",
+            "unit-test",
+            "no published unit-test artifacts given (--artifacts-dir)",
+        )
 
     repo = opts.repo or _git_remote_repo(opts.project)
     sha = opts.sha or _git_head(opts.project)
     if repo and sha and (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")):
         _invoke(check_ci_status, base + ["--repo", repo, "--sha", sha], records_file, log)
+    else:
+        _not_done(
+            records_file,
+            module,
+            "C3",
+            "CI passes",
+            "close-out",
+            "CI status not consulted (needs the repository, the commit and GITHUB_TOKEN)",
+        )
 
     records = _load_records(records_file)
     try:
@@ -265,6 +328,22 @@ def run_checks(opts: RunOptions, work_dir: Path, log: io.StringIO) -> Dict[str, 
     except Exception as exc:  # noqa: BLE001
         log.write(f"ERROR: SDD grading crashed: {exc}\n")
     return records
+
+
+def _not_done(records_file: Path, module: str, check_id: str, name: str, category: str, why: str) -> None:
+    """Record that a process step the item asks about has not been performed (UNCHECKED, truthfully)."""
+    _append_record(
+        records_file,
+        {
+            "id": check_id,
+            "name": name,
+            "category": category,
+            "module": module,
+            "status": "skip",
+            "failures": [],
+            "detail": f"not done yet: {why}",
+        },
+    )
 
 
 def _build_cache(project: Path) -> Optional[Path]:
