@@ -213,7 +213,9 @@ rows of the due sections, carried decisions whose section inputs changed
 
 `decide` records a decision in the JSON sidecar with the commit and the
 section fingerprint it was made against and re-renders the Markdown, so the
-table is never hand-edited. A decision on a tool-decided row is an **audit**:
+table is never hand-edited. The table stays sparse: a reviewer's YES and a
+confirming audit render no note (the note is kept in the JSON); NO, N/A,
+UNCHECKED and audit overrides render one line. A decision on a tool-decided row is an **audit**:
 `confirmed` when the status matches, `overridden` otherwise (a note is
 required). On the next `run --previous`, review decisions carry (flagged
 `STALE:` and re-queued when their section's fingerprint changed) and audits

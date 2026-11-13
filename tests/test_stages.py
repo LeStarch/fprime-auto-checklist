@@ -47,7 +47,7 @@ def test_design_stage_queues_sections_1_and_2_only(tmp_path):
     assert all(e["reason"] == "review" and e["rule_text"] for e in doc["queue"])
     by_id = {i["id"]: i for i in doc["items"]}
     assert by_id["3.21"]["status"] == "REVIEW"
-    assert any("Deferred to the implementation stage" in n for n in by_id["3.21"]["notes"])
+    assert not any("Deferred" in n for n in by_id["3.21"]["notes"])
     text = out.read_text(encoding="utf-8")
     assert "_Stage: **design**" in text and "Review queue for the **design** stage (6 row(s))" in text
     assert "Deferred to a later stage: 3.21, 3.23, 3.33, 3.38, 4.3." in text
@@ -68,7 +68,8 @@ def test_decide_records_and_rerenders(tmp_path):
     assert item["decision"]["fingerprint"] == doc["fingerprints"]["1"]
     assert "1.4" not in {e["id"] for e in doc["queue"]} and len(doc["queue"]) == 5
     text = out.read_text(encoding="utf-8")
-    assert "| 1.4 |" in text and "Static buffers only." in text and "Carried from cl.json" in text
+    assert "| 1.4 |" in text and "Static buffers only." not in text  # a YES is silent; the note lives in the JSON
+    assert item["decision"]["notes"] == ["Static buffers only."]
     assert cli.main(["decide", "--checklist", str(out), "--item", "1.5", "--status", "NO"]) == 2  # NO needs a note
     assert cli.main(["decide", "--checklist", str(out), "--item", "9.9", "--status", "YES"]) == 2
 
@@ -118,9 +119,14 @@ def test_closeout_queues_every_tool_row_for_audit_and_audits_lapse(tmp_path):
     doc = _load(out)
     by_id = {i["id"]: i for i in doc["items"]}
     assert by_id["2.12"]["decision"]["kind"] == "audit" and by_id["2.12"]["decision"]["tool_status"] == "NO"
-    assert any("Audited at" in n and "confirmed" in n for n in by_id["2.12"]["notes"])
-    assert by_id["3.3"]["status"] == "N/A" and any("overridden UNCHECKED -> N/A" in n for n in by_id["3.3"]["notes"])
+    assert by_id["2.12"]["notes"] == by_id["2.12"]["tool_notes"]  # confirmed audit: silent
+    assert by_id["3.3"]["status"] == "N/A" and by_id["3.3"]["notes"][0].startswith("Audit (")
     assert len(doc["queue"]) == 71
+    rc = cli.main(["decide", "--checklist", str(out), "--item", "3.4", "--status", "UNCHECKED", "--note", "not run"])
+    assert rc == 0  # 3.4 is UNCHECKED without an analyzer: confirming it is allowed
+    assert cli.main(["decide", "--checklist", str(out), "--item", "2.13", "--status", "UNCHECKED", "--note", "x"]) == 2
+    doc = _load(out)
+    assert len(doc["queue"]) == 70
 
     out2 = tmp_path / "cl2.md"
     _run(project, out2, "--stage", "closeout", "--previous", str(out))

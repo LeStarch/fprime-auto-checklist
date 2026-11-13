@@ -34,8 +34,7 @@ def test_reviewer_decisions_survive_a_rerun(tmp_path):
     carried = carry.apply_previous(rerun, previous, changed=False)
     again = {v.item.id: v for v in rerun}
     assert carried == ["1.4", "3.21"]
-    assert again["1.4"].status == results.YES and again["1.4"].notes[0].startswith("Memory: static buffers")
-    assert "reviewed at abcdef123456" in again["1.4"].notes[-1]
+    assert again["1.4"].status == results.YES and again["1.4"].notes == []  # a YES is silent
     assert again["3.21"].status == results.NA
     assert again["1.1"].status == results.REVIEW  # untouched rows stay REVIEW
 

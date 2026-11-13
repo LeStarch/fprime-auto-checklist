@@ -24,7 +24,7 @@ from typing import Dict, List, Optional
 
 from .checklist import REVIEW_RULES
 from .fingerprint import SECTION_INPUTS
-from .results import NA, NO, REVIEW, YES, Verdict
+from .results import NA, NO, REVIEW, UNCHECKED, YES, Verdict
 
 STAGES: Dict[str, Dict[str, object]] = {
     "design": {"due": ("1", "2"), "title": "design (SDD + FPP model)"},
@@ -34,6 +34,8 @@ STAGES: Dict[str, Dict[str, object]] = {
 STAGE_ORDER = tuple(STAGES)
 KIND_REVIEW, KIND_AUDIT = "review", "audit"
 _DECIDED = (YES, NO, NA)
+#: An audit may also confirm an UNCHECKED row (the process step is simply not done yet).
+_AUDIT_STATUSES = (YES, NO, NA, UNCHECKED)
 
 
 def due_sections(stage: Optional[str]) -> tuple:
@@ -137,26 +139,19 @@ def apply_decisions(
             if verdict.status == REVIEW or decision.tool_status != verdict.status or not same_inputs:
                 outcome[verdict.item.id] = "lapsed"
                 continue
-            if decision.status in _DECIDED and decision.status != verdict.status:
-                verdict.notes = verdict.notes + decision.notes
-                verdict.notes.append(
-                    f"Audited at {decision.stamp()}: overridden {verdict.status} -> {decision.status}."
-                )
+            # A confirmed audit is silent in the table (its stamp lives in the JSON); an
+            # override replaces the tool's notes with the auditor's one line.
+            if decision.status in _AUDIT_STATUSES and decision.status != verdict.status:
+                verdict.notes = [f"Audit ({decision.stamp()}): " + " ".join(decision.notes)]
                 verdict.status = decision.status
-            else:
-                verdict.notes = verdict.notes + decision.notes
-                verdict.notes.append(f"Audited at {decision.stamp()}: confirmed.")
             outcome[verdict.item.id] = "carried"
             continue
         if verdict.status != REVIEW or decision.status not in _DECIDED:
             continue
-        notes = [n for n in decision.notes if not n.startswith("Carried from ") and not n.startswith("STALE")]
-        notes.append(f"Carried from {source} (reviewed at {decision.stamp()}).")
+        # A reviewer's YES needs no note; NO and N/A carry their one-line reason.
+        notes = [] if decision.status == YES else [n for n in decision.notes if not n.startswith("STALE")]
         if decision.fingerprint is None or current_fp is None:
-            notes.append(
-                f"STALE?: cannot tell whether {SECTION_INPUTS.get(section, 'the inputs')} changed since the "
-                "review (no fingerprint to compare); re-review."
-            )
+            notes.append(f"STALE?: no fingerprint to compare with the review at {decision.stamp()}; re-review.")
             outcome[verdict.item.id] = "stale"
         elif not same_inputs:
             notes.append(
@@ -171,14 +166,9 @@ def apply_decisions(
 
 
 def mark_deferred(verdicts: List[Verdict], stage: Optional[str]) -> List[str]:
-    """Note REVIEW rows of sections not yet due as deferred; returns their ids."""
-    deferred = []
+    """Ids of the REVIEW rows of sections not yet due (listed in the Hand-off section, not in the rows)."""
     due = due_sections(stage)
-    for verdict in verdicts:
-        if verdict.status == REVIEW and verdict.item.section not in due:
-            verdict.notes = verdict.notes + [f"Deferred to the {stage_for_section(verdict.item.section)} stage."]
-            deferred.append(verdict.item.id)
-    return deferred
+    return [v.item.id for v in verdicts if v.status == REVIEW and v.item.section not in due]
 
 
 def build_queue(

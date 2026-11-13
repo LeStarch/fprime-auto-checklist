@@ -19,7 +19,7 @@ from .carry import apply_previous, parse_previous, sources_changed
 from .checklist import ITEMS, codeql_rule_ids
 from .fingerprint import section_fingerprints
 from .render import render_json, render_markdown
-from .results import NO, REVIEW, CodeqlEvidence, Verdict, judge_all
+from .results import NO, REVIEW, UNCHECKED, CodeqlEvidence, Verdict, judge_all
 from .runner import ModuleOutsideProject, RunOptions, _git_head, _relative, run_checks
 from .stages import (
     KIND_AUDIT,
@@ -449,11 +449,15 @@ def cmd_decide(args: argparse.Namespace) -> int:
             return EXIT_USAGE
         status = str(req.get("status", "")).strip().upper()
         status = "N/A" if status in ("NA", "N-A") else status
-        if status not in ("YES", "NO", "N/A"):
-            print(f"error: {item_id}: status must be YES, NO or N/A (got {req.get('status')!r})", file=sys.stderr)
+        audit = tool.status != REVIEW  # a decision on a tool-decided row is always an audit of it
+        allowed = ("YES", "NO", "N/A", "UNCHECKED") if audit and tool.status == UNCHECKED else ("YES", "NO", "N/A")
+        if status not in allowed:
+            print(
+                f"error: {item_id}: status must be one of {', '.join(allowed)} (got {req.get('status')!r})",
+                file=sys.stderr,
+            )
             return EXIT_USAGE
         notes = [str(n) for n in (req.get("notes") or []) if str(n).strip()]
-        audit = tool.status != REVIEW  # a decision on a tool-decided row is always an audit of it
         if not notes and (status != "YES" or (audit and status != tool.status)):
             print(
                 f"error: {item_id}: a note is required for {status}" + (" (override)" if audit else ""), file=sys.stderr

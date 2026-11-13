@@ -162,7 +162,8 @@ def apply_previous(
                 skipped.append(verdict.item.id)
             continue
         notes = [n for n in notes if not n.startswith("Carried from ") and not n.startswith("STALE")]
-        notes.append(f"Carried from {previous.path.name} (reviewed at {reviewed_at}).")
+        if status == YES:
+            notes = []
         section = verdict.item.section
         inputs = SECTION_INPUTS.get(section, "the component")
         section_state = section_changed(previous, fingerprints, section, changed)
