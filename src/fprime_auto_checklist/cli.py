@@ -19,7 +19,7 @@ from .carry import apply_previous, parse_previous, sources_changed
 from .checklist import ITEMS, codeql_rule_ids
 from .fingerprint import section_fingerprints
 from .render import render_json, render_markdown
-from .results import NO, REVIEW, UNCHECKED, CodeqlEvidence, Verdict, judge_all
+from .results import BY_REVIEW, BY_TOOL, OVERRIDE, NO, REVIEW, UNCHECKED, CodeqlEvidence, Verdict, judge_all
 from .runner import ModuleOutsideProject, RunOptions, _git_head, _relative, run_checks
 from .stages import (
     KIND_AUDIT,
@@ -74,7 +74,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
         "--previous-json",
         type=Path,
         default=None,
-        help="JSON written by the previous run (default: <previous>.json beside it); identifies the rows "
+        help="(migration, pre-0.2 sidecars) JSON written by the previous run (default: <previous>.json beside it); identifies the rows "
         "the tool had left at REVIEW so older tool decisions are never carried as reviewer decisions",
     )
     build.add_argument("--artifacts-dir", type=Path, default=None, help="Published unit-test artifacts root (U1)")
@@ -236,7 +236,7 @@ def _prepare_build(
 
 
 def _tool_copy(verdicts: List[Verdict]) -> List[Verdict]:
-    return [Verdict(v.item, v.status, list(v.notes)) for v in verdicts]
+    return [Verdict(v.item, v.status, list(v.notes), v.commit, v.kind) for v in verdicts]
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -298,7 +298,8 @@ def cmd_run(args: argparse.Namespace) -> int:
                 f"({sum(1 for v in outcome.values() if v == 'stale')} stale), {len(lapsed)} audit(s) lapsed {lapsed}\n"
             )
         skipped: list = []
-        carried = apply_previous(verdicts, previous, changed=changed, skipped=skipped, fingerprints=fingerprints)
+        carried = apply_previous(verdicts, previous, changed=changed, skipped=skipped, fingerprints=fingerprints,
+                                 project=project, module=module, current=commit)
         log.write(f"previous checklist {args.previous}: carried {len(carried)} Markdown review decision(s) {carried}\n")
         for item_id in carried:
             row = next(v for v in verdicts if v.item.id == item_id)
@@ -309,9 +310,11 @@ def cmd_run(args: argparse.Namespace) -> int:
                 f"previous checklist: {skipped} are decided but were not review rows of the previous run "
                 "(keep the CL-n rule text in Notes, or pass --previous-json); not carried\n"
             )
+    for v in verdicts:
+        if v.commit is None:
+            v.commit = commit
     deferred = mark_deferred(verdicts, args.stage)
-    audited = {i: d for i, d in decisions.items() if d.kind == KIND_AUDIT}
-    queue = build_queue(verdicts, args.stage, outcome, audited) if args.stage else None
+    queue = build_queue(verdicts, args.stage, outcome, {}) if args.stage else None
     if queue is not None:
         log.write(f"stage {args.stage}: {len(queue)} row(s) queued for review, {len(deferred)} deferred\n")
     markdown = render_markdown(
@@ -329,27 +332,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(markdown, encoding="utf-8")
-    json_output = args.json_output or output.with_suffix(".json")
-    json_output.parent.mkdir(parents=True, exist_ok=True)
-    json_output.write_text(
-        render_json(
-            verdicts,
-            records,
-            codeql_evidence,
-            tool_verdicts=tool_verdicts,
-            decisions=decisions,
-            queue=queue,
-            module=module_rel,
-            component=module.name,
-            owner=args.owner,
-            contributors=args.contributors,
-            project=str(project),
-            commit=commit,
-            fingerprints=fingerprints,
-            stage=args.stage,
-        ),
-        encoding="utf-8",
-    )
+    for json_output in {work_dir / "checks.json", *([args.json_output] if args.json_output else [])}:
+        json_output.parent.mkdir(parents=True, exist_ok=True)
+        json_output.write_text(
+            render_json(verdicts, records, codeql_evidence, tool_verdicts=tool_verdicts, decisions=decisions, queue=queue,
+                    module=module_rel, component=module.name, project=str(project), commit=commit,
+                        fingerprints=fingerprints, stage=args.stage),
+            encoding="utf-8",
+        )  # evidence only (work dir, or --json-output); the Markdown is the record
     (work_dir / "checks.log").write_text(log.getvalue(), encoding="utf-8")
     if args.verbose:
         sys.stdout.write(log.getvalue())
@@ -404,18 +394,19 @@ def _codeql_from_sidecar(doc: dict) -> CodeqlEvidence:
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
-    """Record reviewer decisions (or audits of tool rows) and re-render the checklist.
+    """Record reviewer decisions and re-render the checklist — from the Markdown alone.
 
-    Decisions are stored in the JSON sidecar with the commit and section fingerprint of the
-    run they were made against; the Markdown is re-rendered from the sidecar so hand-editing
-    is never needed.  Exit codes: 0 ok; 2 usage error.
+    A decision on a row the tool left at REVIEW renders ``<status> @<commit> by review``; a decision on a
+    tool-decided row is an override (``overridden by reviewer``, a note is required) — the Markdown table is
+    rewritten by the tool, never hand-edited.  Exit codes: 0 ok; 2 usage error.
     """
+    from .carry import parse_document
+
     checklist: Path = args.checklist
-    sidecar: Path = args.json or checklist.with_suffix(".json")
-    if not sidecar.is_file():
-        print(f"error: no JSON sidecar {sidecar}; run the checklist first", file=sys.stderr)
+    if not checklist.is_file():
+        print(f"error: no checklist {checklist}; run the checklist first", file=sys.stderr)
         return EXIT_USAGE
-    doc = _load_sidecar(sidecar)
+    doc = parse_document(checklist)
     requested: List[dict] = []
     if args.from_file is not None:
         try:
@@ -430,90 +421,63 @@ def cmd_decide(args: argparse.Namespace) -> int:
         if not args.status:
             print("error: --status is required with --item", file=sys.stderr)
             return EXIT_USAGE
-        requested.append({"id": args.item, "status": args.status, "notes": list(args.note or []), "audit": args.audit})
+        requested.append({"id": args.item, "status": args.status, "notes": list(args.note or [])})
     if not requested:
         print("error: nothing to decide (give --item/--status or --from)", file=sys.stderr)
         return EXIT_USAGE
 
-    tool_verdicts = _verdicts_from_sidecar(doc)
-    tool_by_id = {v.item.id: v for v in tool_verdicts}
-    fingerprints = {str(k): str(v) for k, v in (doc.get("fingerprints") or {}).items()}
-    commit = doc.get("commit")
-    stage = args.stage or doc.get("stage")
-    decisions = decisions_from_json(doc)
+    by_id = {v.item.id: v for v in doc.verdicts}
+    stage = args.stage or doc.stage
     for req in requested:
         item_id = str(req.get("id", ""))
-        tool = tool_by_id.get(item_id)
-        if tool is None:
+        row = by_id.get(item_id)
+        if row is None:
             print(f"error: unknown checklist item {item_id!r}", file=sys.stderr)
             return EXIT_USAGE
         status = str(req.get("status", "")).strip().upper()
         status = "N/A" if status in ("NA", "N-A") else status
-        audit = tool.status != REVIEW  # a decision on a tool-decided row is always an audit of it
-        allowed = ("YES", "NO", "N/A", "UNCHECKED") if audit and tool.status == UNCHECKED else ("YES", "NO", "N/A")
+        override = row.status != REVIEW and row.kind != BY_REVIEW
+        allowed = ("YES", "NO", "N/A", "UNCHECKED") if override and row.status == UNCHECKED else ("YES", "NO", "N/A")
         if status not in allowed:
-            print(
-                f"error: {item_id}: status must be one of {', '.join(allowed)} (got {req.get('status')!r})",
-                file=sys.stderr,
-            )
+            print(f"error: {item_id}: status must be one of {', '.join(allowed)} (got {req.get('status')!r})", file=sys.stderr)
             return EXIT_USAGE
-        notes = [str(n) for n in (req.get("notes") or []) if str(n).strip()]
-        if not notes and (status != "YES" or (audit and status != tool.status)):
-            print(
-                f"error: {item_id}: a note is required for {status}" + (" (override)" if audit else ""), file=sys.stderr
-            )
+        raw_notes = req.get("notes") or []
+        raw_notes = [raw_notes] if isinstance(raw_notes, str) else raw_notes
+        notes = [str(n) for n in raw_notes if str(n).strip()]
+        if override and row.kind == BY_TOOL and status == row.status:
+            print(f"error: {item_id}: the tool already decided {status}; nothing to override", file=sys.stderr)
             return EXIT_USAGE
-        decisions[item_id] = new_decision(
-            status,
-            notes,
-            kind=KIND_AUDIT if audit else KIND_REVIEW,
-            commit=commit,
-            fingerprint=fingerprints.get(tool.item.section),
-            stage=stage,
-            tool_status=tool.status if audit else None,
-        )
-    verdicts = _tool_copy(tool_verdicts)
-    outcome = apply_decisions(verdicts, decisions, fingerprints=fingerprints, source=sidecar.name)
-    mark_deferred(verdicts, stage)
-    audited = {i: d for i, d in decisions.items() if d.kind == KIND_AUDIT}
-    queue = build_queue(verdicts, stage, outcome, audited) if stage else None
-    codeql = _codeql_from_sidecar(doc)
-    project = doc.get("project") or ""
+        if not notes and (status != "YES" or override):
+            print(f"error: {item_id}: a note is required for {status}" + (" (override)" if override else ""), file=sys.stderr)
+            return EXIT_USAGE
+        if override:
+            kept = [n for n in row.notes if not n.startswith("STALE")] if row.kind == BY_TOOL else []
+            row.notes = kept + notes
+            row.kind = OVERRIDE
+        else:
+            row.notes = [] if status == "YES" else notes
+            row.kind = BY_REVIEW
+        row.status = status
+        row.commit = doc.commit
+    deferred = mark_deferred(doc.verdicts, stage)
+    queue = build_queue(doc.verdicts, stage, {}, {}) if stage else None
     markdown = render_markdown(
-        verdicts,
-        component=str(doc.get("component") or Path(str(doc.get("module", "component"))).name),
-        module_rel=str(doc.get("module", "")),
-        commit=commit,
-        codeql=codeql,
-        owner=str(doc.get("owner", "")),
-        contributors=str(doc.get("contributors", "")),
-        strip_prefix=str(project),
-        fingerprints=fingerprints or None,
+        doc.verdicts,
+        component=doc.component,
+        module_rel=doc.module_rel,
+        commit=doc.commit,
+        codeql=CodeqlEvidence(ran=False, reason="not re-run by decide"),
+        owner=doc.owner,
+        contributors=doc.contributors,
+        fingerprints=doc.fingerprints or None,
         stage=stage,
         queue=queue,
+        codeql_line=doc.codeql_line,
     )
     checklist.write_text(markdown, encoding="utf-8")
-    meta = {
-        k: v
-        for k, v in doc.items()
-        if k not in ("summary", "items", "checks", "codeql", "queue", "tool", "schema_version", "checklist_version")
-    }
-    meta["stage"] = stage
-    sidecar.write_text(
-        render_json(
-            verdicts,
-            doc.get("checks") or {},
-            codeql,
-            tool_verdicts=tool_verdicts,
-            decisions=decisions,
-            queue=queue,
-            **meta,
-        ),
-        encoding="utf-8",
-    )
     ids = ", ".join(str(r.get("id")) for r in requested)
     remaining = f"; {len(queue)} row(s) still queued" if queue is not None else ""
-    print(f"recorded {len(requested)} decision(s) ({ids}) in {sidecar}; re-rendered {checklist}{remaining}")
+    print(f"recorded {len(requested)} decision(s) ({ids}) in {checklist}{remaining}")
     return EXIT_OK
 
 

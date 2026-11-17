@@ -96,3 +96,28 @@ def test_older_tool_decisions_are_not_mistaken_for_reviewer_decisions(tmp_path):
     rerun = _fresh()
     assert carry.apply_previous(rerun, carry.parse_previous(md), changed=False) == ["1.4", "1.5"]
     assert {v.item.id: v for v in rerun}["1.1"].status == results.REVIEW
+
+
+def test_status_cell_stamps_round_trip(tmp_path):
+    """The Status cell is the record: ``<status> @<commit>``, ``… by review``, ``… overridden by reviewer``; the leading
+    token is the status ("by review" also contains REVIEW)."""
+    assert carry._status_of("🟢 YES @abc123abc123 by review") == results.YES
+    assert carry._status_of("🟠 NO @abc123abc123 overridden by reviewer") == results.NO
+    assert carry._status_of("⚪ N/A @abc123abc123") == results.NA and carry._status_of("🔵 REVIEW") == results.REVIEW
+    assert carry.parse_stamp("🟢 YES @abc123abc123 by review") == ("abc123abc123", results.BY_REVIEW)
+    assert carry.parse_stamp("🟠 NO @abc123abc123 overridden by reviewer") == ("abc123abc123", results.OVERRIDE)
+    assert carry.parse_stamp("🟢 YES @abc123abc123") == ("abc123abc123", results.BY_TOOL)
+    verdicts = _fresh()
+    by_id = {v.item.id: v for v in verdicts}
+    by_id["1.4"].status, by_id["1.4"].kind, by_id["1.4"].commit = results.YES, results.BY_REVIEW, "1111111111111111"
+    by_id["2.12"].status, by_id["2.12"].kind, by_id["2.12"].notes = results.YES, results.OVERRIDE, ["D4 false positive."]
+    path = tmp_path / "cl.md"
+    path.write_text(render.render_markdown(verdicts, component="X", module_rel="Svc/X", commit="2222222222222222",
+                                           codeql=results.CodeqlEvidence(ran=False, reason="skipped")))
+    text = path.read_text(encoding="utf-8")
+    assert "| 🟢 YES @111111111111 by review |" in text and "| 🟢 YES @222222222222 overridden by reviewer |" in text
+    doc = carry.parse_document(path)
+    rows = {v.item.id: v for v in doc.verdicts}
+    assert rows["1.4"].kind == results.BY_REVIEW and rows["1.4"].commit == "111111111111"
+    assert rows["2.12"].kind == results.OVERRIDE and rows["2.12"].notes == ["D4 false positive."]
+    assert doc.commit == "222222222222" and doc.component == "X" and doc.module_rel == "Svc/X"

@@ -5,15 +5,17 @@ skill that drives this tool:
 
 * ``design``         -- after the SDD and FPP model: sections 1-2 are due;
 * ``implementation`` -- after the code and unit tests: sections 1-4 are due;
-* ``closeout``       -- after system testing: every section is due and every
-  tool-decided row is audited.
+* ``closeout``       -- after system testing: every section is due and the
+  tool's NO / UNCHECKED rows are read (overridden only when the tool is wrong).
 
 ``run --stage`` records the stage, marks REVIEW rows of later sections
 "deferred", and writes the *review queue*: the rows the skill must decide now
 (undecided REVIEW rows of due sections, carried decisions whose inputs changed,
-and -- at close-out -- tool rows without a current audit).  ``decide`` records
-each decision in the JSON sidecar with the commit and section fingerprint it
-was made against, so staleness is judged per row on the next run.
+and -- at close-out -- the tool's NO / UNCHECKED rows to read).  ``decide``
+records each decision in the Markdown itself: the Status cell reads
+``<status> @<commit>`` (tool), ``… by review`` or ``… overridden by reviewer``,
+so the Markdown is the only record and staleness is judged per row on the next
+run from the commit in the stamp (section fingerprints or a section-scoped git diff).
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from typing import Dict, List, Optional
 
 from .checklist import REVIEW_RULES
 from .fingerprint import SECTION_INPUTS
-from .results import NA, NO, REVIEW, UNCHECKED, YES, Verdict
+from .results import BY_REVIEW, NA, NO, OVERRIDE, REVIEW, UNCHECKED, YES, Verdict
 
 STAGES: Dict[str, Dict[str, object]] = {
     "design": {"due": ("1", "2"), "title": "design (SDD + FPP model)"},
@@ -95,7 +97,7 @@ class Decision:
 class QueueEntry:
     id: str
     section: str
-    reason: str  # "review" | "stale" | "audit"
+    reason: str  # "review" | "stale" | "read"
     status: str
     rule: Optional[str]
     notes: List[str] = field(default_factory=list)
@@ -137,17 +139,13 @@ def apply_decisions(
         current_fp = fingerprints.get(section)
         same_inputs = decision.fingerprint is not None and current_fp is not None and decision.fingerprint == current_fp
         if decision.kind == KIND_AUDIT:
-            if verdict.status == REVIEW or decision.tool_status != verdict.status or not same_inputs:
+            # Legacy JSON audits (pre-0.2): a confirming audit is dropped; an override becomes an
+            # "overridden by reviewer" row while the tool still disagrees and the inputs are unchanged.
+            if verdict.status == REVIEW or decision.status == verdict.status or not same_inputs:
                 outcome[verdict.item.id] = "lapsed"
                 continue
-            # A confirmed audit is silent in the table (its stamp lives in the JSON); an
-            # override replaces the tool's notes with the auditor's one line.
-            if decision.status in _AUDIT_STATUSES and decision.status != verdict.status:
-                verdict.notes = [f"Audit ({decision.stamp()}): " + " ".join(decision.notes)]
-                verdict.status = decision.status
-            elif verdict.status in (NO, UNCHECKED) and decision.notes:
-                # The auditor's one-line summary replaces the tool's finding text; the rule id stays.
-                verdict.notes = [" ".join(decision.notes) + _rule_suffix(verdict.notes)]
+            verdict.notes = verdict.notes + [" ".join(decision.notes)]
+            verdict.status, verdict.kind, verdict.commit = decision.status, OVERRIDE, decision.commit
             outcome[verdict.item.id] = "carried"
             continue
         if verdict.status != REVIEW or decision.status not in _DECIDED:
@@ -164,8 +162,7 @@ def apply_decisions(
             outcome[verdict.item.id] = "stale"
         else:
             outcome[verdict.item.id] = "carried"
-        verdict.status = decision.status
-        verdict.notes = notes
+        verdict.status, verdict.notes, verdict.kind, verdict.commit = decision.status, notes, BY_REVIEW, decision.commit
     return outcome
 
 
@@ -200,7 +197,7 @@ def build_queue(
 
     * every REVIEW row of a due section (nothing carried for it);
     * every carried decision flagged stale;
-    * at close-out, every tool-decided row (YES/NO/N/A/UNCHECKED) without a current audit."""
+    * at close-out, every tool-decided NO / UNCHECKED row — to be read, and overridden only when the tool is wrong."""
     due = due_sections(stage)
     queue: List[QueueEntry] = []
     for verdict in verdicts:
@@ -213,8 +210,8 @@ def build_queue(
             queue.append(QueueEntry(verdict.item.id, section, "review", verdict.status, rule, list(verdict.notes)))
         elif state == "stale":
             queue.append(QueueEntry(verdict.item.id, section, "stale", verdict.status, rule, list(verdict.notes)))
-        elif stage == "closeout" and verdict.item.id not in audited and state != "carried":
-            queue.append(QueueEntry(verdict.item.id, section, "audit", verdict.status, rule, list(verdict.notes)))
+        elif stage == "closeout" and verdict.kind not in (BY_REVIEW, OVERRIDE) and verdict.status in (NO, UNCHECKED):
+            queue.append(QueueEntry(verdict.item.id, section, "read", verdict.status, rule, list(verdict.notes)))
     return queue
 
 

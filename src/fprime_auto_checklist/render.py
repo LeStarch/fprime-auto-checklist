@@ -1,4 +1,4 @@
-"""Render verdicts as the checklist Markdown (and JSON)."""
+"""Render verdicts as the checklist Markdown — the record — and the evidence JSON kept in the work dir."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from . import __version__
 from .checklist import CHECKLIST_VERSION, SECTIONS
 from .fingerprint import format_fingerprints
-from .results import NA, NO, REVIEW, STATUS_LABELS, UNCHECKED, YES, CodeqlEvidence, Verdict, summarize, verdicts_to_json
+from .results import NA, NO, REVIEW, STATUS_LABELS, UNCHECKED, YES, CodeqlEvidence, Verdict, status_cell, summarize, verdicts_to_json
 from .stages import STAGES, Decision, QueueEntry, rule_text
 
 LEGEND = (
@@ -43,6 +43,7 @@ def render_markdown(
     fingerprints: Optional[Dict[str, str]] = None,
     stage: Optional[str] = None,
     queue: Optional[List[QueueEntry]] = None,
+    codeql_line: Optional[str] = None,
 ) -> str:
     """Render the checklist; ``strip_prefix`` (the project root) is removed from paths in notes.
 
@@ -81,7 +82,9 @@ def render_markdown(
     lines += [f"| {STATUS_LABELS[s]} | {meaning} |" for s, meaning in LEGEND]
     lines += [
         "",
-        f"**Note:** Any status other than **{STATUS_LABELS[YES]}** requires an explanation in the **Notes** column.",
+        f"**Note:** Any status other than **{STATUS_LABELS[YES]}** requires an explanation in the **Notes** column. "
+        "A Status cell reads `<status> @<commit>`: decided by the tool at that commit; `by review` when a reviewer decided a "
+        "row the tool left open; `overridden by reviewer` when a reviewer replaced the tool's verdict (reason in Notes).",
         "",
         "## Definitions",
         "",
@@ -91,7 +94,9 @@ def render_markdown(
         "| Block diagram | A diagram illustrating the component's ports (and their directions/types), "
         "used to visualize the component's interfaces. |",
     ]
-    if codeql.ran:
+    if codeql_line is not None:
+        lines += ["", codeql_line]
+    elif codeql.ran:
         lines += [
             "",
             f"_{codeql.tool}: {len(codeql.rules_run)} rules run; {codeql.autocode_findings} finding(s) in autocoded "
@@ -106,7 +111,7 @@ def render_markdown(
             if v.item.section != section_id:
                 continue
             notes = "<br>".join(_cell(_strip(n, strip_prefix)) for n in v.notes)
-            lines.append(f"| {v.item.id} | {_cell(v.item.text)} | {STATUS_LABELS[v.status]} | {notes} |")
+            lines.append(f"| {v.item.id} | {_cell(v.item.text)} | {status_cell(v, commit)} | {notes} |")
 
     if queue is not None:
         lines += ["", "## Hand-off", ""]
@@ -117,9 +122,8 @@ def render_markdown(
             )
             lines.append("")
             for entry in queue:
-                why = {"review": "review", "stale": "re-review (inputs changed)", "audit": "audit the tool's verdict"}[
-                    entry.reason
-                ]
+                why = {"review": "review", "stale": "re-review (inputs changed)",
+                       "read": "read the tool's finding; override only if it is wrong"}[entry.reason]
                 rule = f" [{entry.rule}]" if entry.rule else ""
                 lines.append(f"- **{entry.id}** ({why}{rule}) \u2014 {STATUS_LABELS[entry.status]}")
         else:

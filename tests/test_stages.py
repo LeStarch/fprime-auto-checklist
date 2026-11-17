@@ -23,8 +23,19 @@ def _run(project, out, *extra):
     )
 
 
-def _load(out):
-    return json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+def _doc(out):
+    from fprime_auto_checklist.carry import parse_document
+    return parse_document(out)
+
+
+def _rows(out):
+    return {v.item.id: v for v in _doc(out).verdicts}
+
+
+def _queue(out):
+    import re
+    text = out.read_text(encoding="utf-8")
+    return dict(re.findall(r"^- \*\*(\d+\.\d+)\*\* \((review|re-review \(inputs changed\)|read)", text, re.M))
 
 
 def _batch(tmp_path):
@@ -41,104 +52,76 @@ def test_design_stage_queues_sections_1_and_2_only(tmp_path):
     project = _project(tmp_path)
     out = tmp_path / "cl.md"
     _run(project, out, "--stage", "design")
-    doc = _load(out)
-    assert doc["stage"] == "design"
-    assert {e["id"] for e in doc["queue"]} == REQ_ITEMS
-    assert all(e["reason"] == "review" and e["rule_text"] for e in doc["queue"])
-    by_id = {i["id"]: i for i in doc["items"]}
-    assert by_id["3.21"]["status"] == "REVIEW"
-    assert not any("Deferred" in n for n in by_id["3.21"]["notes"])
+    doc = _doc(out)
+    assert doc.stage == "design"
+    assert set(_queue(out)) == REQ_ITEMS and set(_queue(out).values()) == {"review"}
+    rows = _rows(out)
+    assert rows["3.21"].status == "REVIEW" and rows["1.1"].status == "REVIEW"
     text = out.read_text(encoding="utf-8")
     assert "_Stage: **design**" in text and "Review queue for the **design** stage (6 row(s))" in text
     assert "Deferred to a later stage: 3.21, 3.23, 3.33, 3.38, 4.3." in text
+    assert not out.with_suffix(".json").exists()  # the Markdown is the only record
 
 
 def test_decide_records_and_rerenders(tmp_path):
     project = _project(tmp_path)
     out = tmp_path / "cl.md"
     _run(project, out, "--stage", "design")
-    rc = cli.main(
-        ["decide", "--checklist", str(out), "--item", "1.4", "--status", "YES", "--note", "Static buffers only."]
-    )
+    rc = cli.main(["decide", "--checklist", str(out), "--from", str(_batch(tmp_path))])
     assert rc == 0
-    doc = _load(out)
-    item = next(i for i in doc["items"] if i["id"] == "1.4")
-    assert item["status"] == "YES" and item["tool_status"] == "REVIEW"
-    assert item["decision"]["kind"] == "review" and item["decision"]["stage"] == "design"
-    assert item["decision"]["fingerprint"] == doc["fingerprints"]["1"]
-    assert "1.4" not in {e["id"] for e in doc["queue"]} and len(doc["queue"]) == 5
+    rows = _rows(out)
+    assert all(rows[i].status == "YES" and rows[i].kind == results.BY_REVIEW and rows[i].notes == [] for i in REQ_ITEMS)
     text = out.read_text(encoding="utf-8")
-    assert "| 1.4 |" in text and "Static buffers only." not in text  # a YES is silent; the note lives in the JSON
-    assert item["decision"]["notes"] == ["Static buffers only."]
-    assert cli.main(["decide", "--checklist", str(out), "--item", "1.5", "--status", "NO"]) == 2  # NO needs a note
-    assert cli.main(["decide", "--checklist", str(out), "--item", "9.9", "--status", "YES"]) == 2
+    assert "| 1.1 |" in text and " by review |" in text
+    assert "Nothing to review at the **design** stage." in text
+    # a reviewer NO carries its one-line reason; a tool row can only be overridden with a note
+    assert cli.main(["decide", "--checklist", str(out), "--item", "1.4", "--status", "NO", "--note", "Gap: no memory requirement."]) == 0
+    assert _rows(out)["1.4"].notes == ["Gap: no memory requirement."] and _rows(out)["1.4"].kind == results.BY_REVIEW
+    assert cli.main(["decide", "--checklist", str(out), "--item", "2.12", "--status", "YES"]) == 2  # override needs a note
+    assert cli.main(["decide", "--checklist", str(out), "--item", "2.12", "--status", "YES", "--note", "D4 false positive: priorities set in Top."]) == 0
+    row = _rows(out)["2.12"]
+    assert row.status == "YES" and row.kind == results.OVERRIDE and row.notes[-1].startswith("D4 false positive")
+    assert "overridden by reviewer |" in out.read_text(encoding="utf-8")
 
 
 def test_decisions_survive_rerun_and_go_stale_when_their_section_changes(tmp_path):
     project = _project(tmp_path)
     out = tmp_path / "cl.md"
     _run(project, out, "--stage", "design")
-    assert cli.main(["decide", "--checklist", str(out), "--from", str(_batch(tmp_path))]) == 0
-    assert _load(out)["queue"] == []
-
+    cli.main(["decide", "--checklist", str(out), "--from", str(_batch(tmp_path))])
+    cli.main(["decide", "--checklist", str(out), "--item", "2.12", "--status", "YES", "--note", "D4 false positive."])
     out2 = tmp_path / "cl2.md"
-    _run(project, out2, "--stage", "implementation", "--previous", str(out))
-    doc2 = _load(out2)
-    by_id = {i["id"]: i for i in doc2["items"]}
-    assert by_id["1.4"]["status"] == "YES" and not any(n.startswith("STALE") for n in by_id["1.4"]["notes"])
-    assert by_id["1.4"]["decision"]["stage"] == "design"  # the recorded decision travels with the sidecar
-    assert {e["id"] for e in doc2["queue"]} == LATER_REVIEW
-
-    sdd = project / "Svc" / "Widget" / "docs" / "sdd.md"
-    sdd.write_text(sdd.read_text(encoding="utf-8") + "\nThe widget shall also beep.\n", encoding="utf-8")
+    _run(project, out2, "--stage", "design", "--previous", str(out))
+    rows = _rows(out2)
+    assert all(rows[i].status == "YES" and rows[i].kind == results.BY_REVIEW for i in REQ_ITEMS)
+    assert rows["2.12"].status == "YES" and rows["2.12"].kind == results.OVERRIDE
+    assert _queue(out2) == {}
+    sdd = next((project / "Svc" / "Widget" / "docs").glob("*.md"))
+    sdd.write_text(sdd.read_text(encoding="utf-8") + "\n\nAn added paragraph.\n", encoding="utf-8")
     out3 = tmp_path / "cl3.md"
-    _run(project, out3, "--stage", "implementation", "--previous", str(out2))
-    doc3 = _load(out3)
-    by_id = {i["id"]: i for i in doc3["items"]}
-    assert by_id["1.4"]["status"] == "YES" and any(n.startswith("STALE:") for n in by_id["1.4"]["notes"])
-    assert {e["id"] for e in doc3["queue"] if e["reason"] == "stale"} == REQ_ITEMS
+    _run(project, out3, "--stage", "design", "--previous", str(out2))
+    rows = _rows(out3)
+    assert all(any(n.startswith("STALE:") for n in rows[i].notes) for i in REQ_ITEMS)  # section 1/2 inputs changed
+    assert set(_queue(out3)) == REQ_ITEMS and set(_queue(out3).values()) == {"re-review (inputs changed)"}
+    assert rows["2.12"].kind == results.BY_TOOL and rows["2.12"].status == "NO"  # override dropped: inputs changed
 
 
-def test_closeout_queues_every_tool_row_for_audit_and_audits_lapse(tmp_path):
+def test_closeout_queues_no_and_unchecked_tool_rows_to_read(tmp_path):
     project = _project(tmp_path)
     out = tmp_path / "cl.md"
     _run(project, out, "--stage", "closeout")
-    doc = _load(out)
-    reasons = {e["id"]: e["reason"] for e in doc["queue"]}
-    assert len(reasons) == 73
-    assert reasons["2.12"] == "audit" and reasons["1.1"] == "review" and reasons["3.3"] == "audit"
-    tool = {i["id"]: i["tool_status"] for i in doc["items"]}
-    assert tool["2.12"] == "NO" and tool["3.3"] == "UNCHECKED"
-
-    rc = cli.main(["decide", "--checklist", str(out), "--item", "2.12", "--status", "NO", "--note", "Confirmed."])
+    q = _queue(out)
+    rows = _rows(out)
+    assert q["1.1"] == "review" and q["2.12"] == "read" and q["3.3"] == "read"
+    assert rows["2.12"].status == "NO" and rows["3.3"].status == "UNCHECKED"
+    assert all(rows[i].status in ("NO", "UNCHECKED") for i, why in q.items() if why == "read")
+    assert not any(rows[i].status == "YES" for i in q)  # a tool YES is never queued
+    rc = cli.main(["decide", "--checklist", str(out), "--item", "3.3", "--status", "N/A", "--note", "No analyzer here."])
     assert rc == 0
-    rc = cli.main(
-        ["decide", "--checklist", str(out), "--item", "3.3", "--status", "N/A", "--note", "No analyzer here."]
-    )
-    assert rc == 0
-    doc = _load(out)
-    by_id = {i["id"]: i for i in doc["items"]}
-    assert by_id["2.12"]["decision"]["kind"] == "audit" and by_id["2.12"]["decision"]["tool_status"] == "NO"
-    assert by_id["2.12"]["notes"] == ["Confirmed. [D4]"]  # confirmed NO: the auditor's line replaces the finding text
-    assert by_id["3.3"]["status"] == "N/A" and by_id["3.3"]["notes"][0].startswith("Audit (")
-    assert len(doc["queue"]) == 71
-    rc = cli.main(["decide", "--checklist", str(out), "--item", "3.4", "--status", "UNCHECKED", "--note", "not run"])
-    assert rc == 0  # 3.4 is UNCHECKED without an analyzer: confirming it is allowed
-    assert cli.main(["decide", "--checklist", str(out), "--item", "2.13", "--status", "UNCHECKED", "--note", "x"]) == 2
-    doc = _load(out)
-    assert len(doc["queue"]) == 70
-
-    out2 = tmp_path / "cl2.md"
-    _run(project, out2, "--stage", "closeout", "--previous", str(out))
-    doc2 = _load(out2)
-    assert {e["id"] for e in doc2["queue"]} == {e["id"] for e in doc["queue"]}
-
-    src = next((project / "Svc" / "Widget").glob("*.cpp"))
-    src.write_text(src.read_text(encoding="utf-8") + "\n// touched\n", encoding="utf-8")
-    out3 = tmp_path / "cl3.md"
-    _run(project, out3, "--stage", "closeout", "--previous", str(out2))
-    ids = {e["id"] for e in _load(out3)["queue"]}
-    assert "3.3" in ids and "2.12" not in ids  # section-3 audit lapsed, section-2 audit holds
+    rows = _rows(out)
+    assert rows["3.3"].status == "N/A" and rows["3.3"].kind == results.OVERRIDE
+    assert cli.main(["decide", "--checklist", str(out), "--item", "2.12", "--status", "NO", "--note", "x"]) == 2  # same as the tool
+    assert "3.3" not in _queue(out)
 
 
 def test_apply_decisions_unit():
@@ -156,7 +139,8 @@ def test_apply_decisions_unit():
         ),
     }
     outcome = stages.apply_decisions(verdicts, decisions, fingerprints=fps, source="prev.json")
-    assert outcome == {"1.4": "carried", "1.5": "stale", "3.3": "lapsed"}  # 3.3 is UNCHECKED now, was audited as YES
+    assert outcome == {"1.4": "carried", "1.5": "stale", "3.3": "carried"}  # a legacy audit that overrides becomes an override row
     by_id = {v.item.id: v for v in verdicts}
-    assert by_id["1.4"].status == "YES" and by_id["1.5"].status == "NO"
+    assert by_id["1.4"].status == "YES" and by_id["1.4"].kind == results.BY_REVIEW and by_id["1.5"].status == "NO"
+    assert by_id["3.3"].status == "N/A" and by_id["3.3"].kind == results.OVERRIDE
     assert any(n.startswith("STALE: the SDD changed since abc123abc123 (design stage)") for n in by_id["1.5"].notes)

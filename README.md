@@ -205,23 +205,28 @@ fprime-auto-checklist run --module Svc/X --analyzer clang-tidy --stage implement
 ```
 
 `run --stage` marks REVIEW rows of later sections *deferred* and writes the
-**review queue** — the rows to decide now — to the Hand-off section and to the
-JSON sidecar (`queue`, each entry with its review rule text): undecided REVIEW
-rows of the due sections, carried decisions whose section inputs changed
-(`stale`), and at close-out every tool-decided row without a current audit
-(`audit`).
+**review queue** — the rows to decide now — to the Hand-off section: undecided
+REVIEW rows of the due sections, carried decisions whose section inputs changed
+(`stale`), and at close-out the tool's NO / UNCHECKED rows (`read`: open the
+finding, override only when the tool is wrong — a tool YES is accepted as is).
 
-`decide` records a decision in the JSON sidecar with the commit and the
-section fingerprint it was made against and re-renders the Markdown, so the
-table is never hand-edited. The table stays sparse: a reviewer's YES and a
-confirming audit render no note (the note is kept in the JSON); NO, N/A,
-UNCHECKED and audit overrides render one line. A decision on a tool-decided row is an **audit**:
-`confirmed` when the status matches, `overridden` otherwise (a note is
-required). On the next `run --previous`, review decisions carry (flagged
-`STALE:` and re-queued when their section's fingerprint changed) and audits
-hold only while the tool's verdict and the section fingerprint are unchanged —
-otherwise they lapse and the row is queued again. `--from decisions.json`
-records a batch.
+**The Markdown is the only record.** Every Status cell carries its decision
+stamp: `🟢 YES @508b1a3a39b1` (decided by the tool at that commit),
+`🟢 YES @508b1a3a39b1 by review` (a row the tool left at REVIEW, decided by the
+reviewer) or `🟠 NO @508b1a3a39b1 overridden by reviewer` (the reviewer replaced
+the tool's verdict). `decide` rewrites the table from the Markdown — it is never
+hand-edited — and a justification goes in Notes only where a reader could not
+otherwise tell why: an override, or a reviewer's NO / N/A (one clause). A
+reviewer's YES carries no note; a tool NO keeps the tool's own finding. On the
+next `run --previous`, `by review` rows carry (flagged `STALE:` and re-queued
+when the inputs their section judges changed since the stamped commit) and an
+override holds while those inputs are unchanged and the tool still disagrees —
+otherwise the tool's verdict stands again. `--from decisions.json` records a
+batch (`[{"id", "status", "notes": [..]}]`). The evidence behind every tool
+row (check records, SARIF) is written to the work dir (`checks.json`, or
+`--json-output`), not beside the checklist; a pre-0.2 `checklist.json` sidecar
+beside `--previous` is still read once to migrate its decisions
+(`--previous-json`).
 
 The checker performs exactly one build itself: `fprime-util generate` (when no
 `compile_commands.json` exists) and `fprime-util build` of the module, which
@@ -235,23 +240,16 @@ hardware run, CI — is read from what the development process already produced
 ## Carrying reviewer decisions forward
 
 `run --previous <earlier-checklist.md>` reads an earlier rendering of the same
-checklist.  Rows the tool leaves at `REVIEW` take the reviewer's decision from
-that file (`YES`, `NO` or `N/A` written in the Status column, with the Notes
-kept verbatim); every carried row is stamped `Carried from <file> (reviewed at
-<commit>)` and marked `STALE:` when the inputs *its section* judges changed
-since that checklist was rendered -- section 1 (requirements) the SDD, section
-2 (design) the SDD and FPP model, section 3 (implementation) the non-test
-sources, section 4 (unit testing) the `test/ut` sources -- so a judgement made
-on older artefacts is re-examined rather than silently trusted, while an
-unrelated change elsewhere in the component does not disturb it.  The
-per-section content fingerprints are recorded in the rendered Markdown header
-and in the JSON; without them the comparison falls back to a whole-module git
-diff between the recorded and current commits.  Tool-decided rows are always
-recomputed, and a decided row is only taken as a reviewer's when the previous
-run had left it at `REVIEW` (known from the JSON written beside the Markdown,
-`--previous-json` to point elsewhere; without it, from the `CL-n:` rule text
-still present in Notes) -- so an older tool decision is never carried forward.
-
+checklist. Rows stamped `by review` keep the reviewer's status and notes; rows
+stamped `overridden by reviewer` keep the override while the tool still
+disagrees; tool rows are always recomputed. Staleness is judged per section —
+section 1 (requirements) the SDD, section 2 (design) the SDD and FPP model,
+section 3 (implementation) the non-test sources, section 4 (unit testing) the
+`test/ut` sources — from the per-section fingerprints in the rendered header
+when both sides have them, else from a `git diff` of that section's files
+between the stamped commit and HEAD. A stale review row is flagged `STALE:` and
+re-queued; a stale override is dropped (the tool's verdict stands until the
+reviewer overrides again).
 
 ## External References table (item 1.8)
 

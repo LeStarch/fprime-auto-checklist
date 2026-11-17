@@ -56,11 +56,19 @@ class CodeqlEvidence:
     autocode_findings: int = 0
 
 
+#: Who decided a row: the tool, a reviewer (a row the tool left at REVIEW), or a reviewer overriding the tool.
+BY_TOOL, BY_REVIEW, OVERRIDE = "tool", "review", "override"
+STAMP_SUFFIX = {BY_TOOL: "", BY_REVIEW: " by review", OVERRIDE: " overridden by reviewer"}
+
+
 @dataclass
 class Verdict:
     item: Item
     status: str
     notes: List[str]
+    #: Commit the row was decided at (the run's commit for tool rows, the reviewer's checklist commit otherwise).
+    commit: Optional[str] = None
+    kind: str = BY_TOOL
 
 
 def _check_outcome(ev: Evidence, records: Dict[str, dict]) -> tuple:
@@ -155,9 +163,16 @@ def summarize(verdicts: List[Verdict]) -> Dict[str, int]:
     return counts
 
 
+def status_cell(v: Verdict, commit: Optional[str] = None) -> str:
+    """The Status cell: ``<label> @<sha12>[ by review| overridden by reviewer]`` — the row's decision record."""
+    at = (v.commit or commit or "")[:12]
+    return STATUS_LABELS[v.status] + (f" @{at}" if at else "") + STAMP_SUFFIX.get(v.kind, "")
+
+
 def verdicts_to_json(verdicts: List[Verdict]) -> List[dict]:
     return [
-        {"id": v.item.id, "section": v.item.section, "text": v.item.text, "status": v.status, "notes": v.notes}
+        {"id": v.item.id, "section": v.item.section, "text": v.item.text, "status": v.status, "notes": v.notes,
+         "commit": v.commit, "kind": v.kind}
         for v in verdicts
     ]
 

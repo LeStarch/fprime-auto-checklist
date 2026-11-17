@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fprime-auto-checklist"
-version = "0.1.0"
+version = "0.2.0"
 description = "Pre-fill the F Prime Component Development Checklist from CodeQL and script evidence"
 readme = "README.md"
 license = { file = "LICENSE" }
