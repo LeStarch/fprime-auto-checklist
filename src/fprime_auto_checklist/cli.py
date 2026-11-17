@@ -280,7 +280,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     verdicts = judge_all(records, codeql_evidence)
     tool_verdicts = _tool_copy(verdicts)
 
-    commit = args.sha or _git_head(project)
+    commit = args.sha or _git_head(module) or _git_head(project)
     fingerprints = section_fingerprints(module)
     decisions: Dict[str, Decision] = {}
     outcome: Dict[str, str] = {}
